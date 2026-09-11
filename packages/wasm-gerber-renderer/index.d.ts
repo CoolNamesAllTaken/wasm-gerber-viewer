@@ -43,6 +43,41 @@ export type RendererOptions = {
   releaseContext?: boolean;
 };
 
+export type FrameView = {
+  zoomX: number;
+  zoomY: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+export type FrameBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
+
+export type CanvasPoint = { x: number; y: number };
+export type WorldPoint = { x: number; y: number };
+
+export type FrameResult = {
+  width: number;
+  height: number;
+  background: null | string | RGBAColor;
+  bounds: FrameBounds | null;
+  /** The view the frame was drawn with, flips included; `null` for an empty frame. */
+  view: FrameView | null;
+  /** Whether the frame background was painted onto the canvas itself. */
+  backgroundPainted: boolean;
+  layers: Array<{
+    id: number;
+    name: string;
+    bounds: FrameBounds | null;
+    color: RGBColor;
+    alpha: number;
+  }>;
+};
+
 export type FrameOptions = {
   width?: number;
   height?: number;
@@ -52,12 +87,7 @@ export type FrameOptions = {
   padding?: number;
   flipX?: boolean;
   flipY?: boolean;
-  view?: {
-    zoomX: number;
-    zoomY: number;
-    offsetX: number;
-    offsetY: number;
-  };
+  view?: FrameView;
   preserveArcRegions?: boolean;
   arcTessellationQuality?: 0 | 1 | 2;
   minimumFeaturePixels?: number;
@@ -86,6 +116,16 @@ export type LayerOptions = {
   kind?: LayerKind;
 };
 
+export type InvertedLayerOptions = {
+  name?: string;
+  color?: RGBColor | string;
+  alpha?: number;
+  visible?: boolean;
+  outlineLayerId?: number;
+  offsetX?: number;
+  offsetY?: number;
+};
+
 export type ExportOptions = {
   type?: "image/png" | string;
   quality?: number;
@@ -102,6 +142,34 @@ export type BrowserPngWritable =
       close?(): Promise<void> | void;
       abort?(error?: unknown): Promise<void> | void;
     };
+
+export declare function calculateFitView(
+  bounds: FrameBounds,
+  width: number,
+  height: number,
+  padding?: number,
+): FrameView;
+
+export declare function viewExtent(
+  width: number,
+  height: number,
+): { viewWidth: number; viewHeight: number };
+
+export declare function projectToCanvas(
+  view: FrameView,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): CanvasPoint;
+
+export declare function unprojectFromCanvas(
+  view: FrameView,
+  pixelX: number,
+  pixelY: number,
+  width: number,
+  height: number,
+): WorldPoint;
 
 export declare function createGerberRenderer(
   canvas: GerberCanvas,
@@ -130,6 +198,9 @@ export declare function renderGerberToPngStream(
 ): Promise<void>;
 
 export declare class GerberRenderer {
+  /** The last successfully completed frame, or `null` before one exists. */
+  readonly lastFrame: FrameResult | null;
+
   withFrame(
     frameOptions: FrameOptions,
     callback: () => void | Promise<void>,
@@ -140,6 +211,11 @@ export declare class GerberRenderer {
   renderCompositeLayer(
     sourceLayerIds: number[],
     options?: CompositeLayerOptions,
+  ): Promise<number | null>;
+
+  renderInvertedLayer(
+    layer: GerberLayer,
+    options?: InvertedLayerOptions,
   ): Promise<number | null>;
 
   renderLayers(

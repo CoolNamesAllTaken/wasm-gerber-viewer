@@ -29,6 +29,7 @@ default native WebGL2 context provider.
 - [Browser Usage](#browser-usage)
 - [Type Reference](#type-reference)
 - [Browser API](#browser-api)
+- [Overlaying the Canvas](#overlaying-the-canvas)
 - [Node.js Usage](#nodejs-usage)
 - [Node.js API](#nodejs-api)
 - [Composite Layers](#composite-layers)
@@ -216,12 +217,60 @@ type CompositeLayerOptions = {
 - `renderer.withFrame(frameOptions, callback)`: starts a frame, applies canvas/view options, runs the callback, and presents rendered layers after it resolves.
 - `renderer.renderLayer(layer, layerOptions)`: adds one layer to the active frame and returns its numeric layer ID, or `null` when a drill is intentionally skipped by `renderDrills: false`. Must be called inside `withFrame()`. This strict API rejects on failure.
 - `renderer.renderCompositeLayer(sourceLayerIds, options)`: adds a composite over 2–24 current-frame Gerber IDs. Must be called inside `withFrame()` after its sources.
+- `renderer.renderInvertedLayer(layer, options)`: adds one Gerber layer as its negative — everything inside the outline (or the frame bounds) except what the layer draws. This is how a solder mask file, which draws the *openings*, is shown as the mask. Options are `name`, `color`, `alpha`, `visible`, `outlineLayerId`, `offsetX`, `offsetY`. Returns the composite's layer ID. Must be called inside `withFrame()`.
+- `renderer.lastFrame`: the last successfully completed frame — `{ width, height, background, bounds, view, backgroundPainted, layers }` — or `null`. `view` is the resolved `{ zoomX, zoomY, offsetX, offsetY }` the frame was drawn with, flips included; see [Overlaying the Canvas](#overlaying-the-canvas).
 - `renderer.renderLayers(layers, options)`: adds multiple layers and returns `{ renderedCount, failures }`. Failed layers are skipped by default; use `layerErrorMode: "throw"` for strict behavior.
 - `renderer.exportPng(exportOptions)`: exports the last browser frame as a PNG `Blob`.
 - `renderer.exportPngStream(writable, exportOptions)`: exports the last browser frame to a `WritableStream`, closing it on success or aborting it on failure, without assembling a `Blob`.
 - `renderer.dispose()`: releases the WebGL context.
 
+Standalone view helpers, for hosts that draw on top of the canvas:
+
+- `calculateFitView(bounds, width, height, padding)`: the view `fit: true` would compute for `bounds` on a `width` × `height` frame with `padding` pixels on every side.
+- `projectToCanvas(view, x, y, width, height)`: a world coordinate as a canvas pixel position `{ x, y }` (y grows downward).
+- `unprojectFromCanvas(view, pixelX, pixelY, width, height)`: the inverse.
+- `viewExtent(width, height)`: the frame's span in view units, `{ viewWidth, viewHeight }`.
+
 Browser export requires a successfully completed `withFrame()` call and is rejected before, during, or after a failed frame attempt. `dispose()` is rejected while a `withFrame()` callback is active. While an export is active, a new frame, another export, and `dispose()` are rejected so the canvas cannot change mid-export.
+
+## Overlaying the Canvas
+
+A viewer usually draws more than the Gerbers: component markers, drill
+positions, a board clip, measurements. Those are DOM, SVG or a second canvas laid
+over the WebGL render, and they only line up if they use the same transform the
+renderer does. Rather than restate that math, ask the renderer:
+
+```js
+import {
+  calculateFitView,
+  createGerberRenderer,
+  projectToCanvas,
+} from "wasm-gerber-renderer";
+
+const renderer = await createGerberRenderer(canvas, { wasmInitInput: wasmUrl });
+
+// Frame a region of your own choosing -- here the board outline's bounds --
+// rather than the layers' extents, so toggling a layer cannot shift the picture.
+const view = calculateFitView(boardBounds, canvas.width, canvas.height, 24);
+await renderer.withFrame({ view, flipX: viewingBottom }, async () => {
+  await renderer.renderLayers(layers);
+});
+
+// The frame reports the view it actually drew with, flips included.
+const { view: drawn, width, height } = renderer.lastFrame;
+for (const part of placements) {
+  const { x, y } = projectToCanvas(drawn, part.x, part.y, width, height);
+  marker(part).style.transform = `translate(${x}px, ${y}px)`;
+}
+```
+
+`projectToCanvas` returns positions in the canvas's own pixels; divide by the
+canvas's backing-resolution multiplier if the overlay is sized in CSS pixels.
+`unprojectFromCanvas` goes the other way, for hit-testing a click.
+
+`wasmInitInput` is the URL of `wasm_gerber_processor_bg.wasm`. Pass it whenever
+the page's static files are fingerprinted or served from somewhere other than
+next to `shared.js`; the default resolution is relative to the module's own URL.
 
 ## Node.js Usage
 
@@ -412,7 +461,7 @@ other valid layers/composites continue.
 - `width`: output width in pixels. Defaults to the browser canvas width or `1200` in Node.
 - `height`: output height in pixels. Defaults to the browser canvas height or `800` in Node.
 - `clear`: clears the frame before rendering. Defaults to `true`; Node always renders to a fresh buffer.
-- `background`: output background. Defaults to `null` for transparent output. Browser exports accept every canvas-supported CSS color; Node accepts named CSS colors, hex, and comma-form `rgb()`/`rgba()`. Both accept `[r, g, b, a]`.
+- `background`: frame background. Defaults to `null` for a transparent canvas and transparent output. In the browser it is painted on the live canvas under the layers (and drill holes are filled with it, so they read as holes); a painted background is exported as-is, and `exportOptions.background` cannot show through it. Browser frames and exports accept every canvas-supported CSS color; Node accepts named CSS colors, hex, and comma-form `rgb()`/`rgba()`. Both accept `[r, g, b, a]` with channels in `0..1`.
 - `fit`: fits all loaded layer bounds into the output frame. Defaults to `true`.
 - `padding`: pixel padding applied when `fit` is enabled. Defaults to `0`.
 - `flipX`: mirrors the output horizontally around the frame center. Defaults to `false`.

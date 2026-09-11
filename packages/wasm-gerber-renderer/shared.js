@@ -850,6 +850,83 @@ export function resolveFrameView(frameOptions, bounds, width, height) {
   return applyFrameFlip(view, frameOptions);
 }
 
+/**
+ * The span of the frame in view units.
+ *
+ * The camera maps a 2 x 2 view-unit square onto the shorter canvas side; the
+ * longer side shows proportionally more. Every projection below depends on
+ * this, so it is stated once.
+ */
+export function viewExtent(width, height) {
+  const frameWidth = positiveFiniteOrThrow(width, "width");
+  const frameHeight = positiveFiniteOrThrow(height, "height");
+  const aspect = frameWidth / frameHeight;
+  return {
+    viewWidth: aspect > 1 ? 2 * aspect : 2,
+    viewHeight: aspect > 1 ? 2 : 2 / aspect,
+  };
+}
+
+/**
+ * A world coordinate (Gerber units, usually millimetres) as a canvas pixel
+ * position under `view` on a `width` x `height` frame. Pixel y grows downward,
+ * so the result can be placed directly over the canvas with CSS or SVG.
+ *
+ * `view` is the resolved `{ zoomX, zoomY, offsetX, offsetY }` -- the one
+ * `renderer.lastFrame.view` reports after a frame, which already includes any
+ * `flipX`/`flipY` -- or one built with `calculateFitView()`.
+ */
+export function projectToCanvas(view, x, y, width, height) {
+  const resolved = normalizeView(view);
+  const { viewWidth, viewHeight } = viewExtent(width, height);
+  const viewX = finiteOrThrow(x, "x") * resolved.zoomX + resolved.offsetX;
+  const viewY = finiteOrThrow(y, "y") * resolved.zoomY + resolved.offsetY;
+  return {
+    x: ((viewX + viewWidth / 2) / viewWidth) * width,
+    y: height - ((viewY + viewHeight / 2) / viewHeight) * height,
+  };
+}
+
+/**
+ * The inverse of `projectToCanvas()`: a canvas pixel position back to world
+ * coordinates. Throws when the view's zoom is zero, because such a view has
+ * no inverse.
+ */
+export function unprojectFromCanvas(view, pixelX, pixelY, width, height) {
+  const resolved = normalizeView(view);
+  if (resolved.zoomX === 0 || resolved.zoomY === 0) {
+    throw new Error("Cannot unproject through a view with zero zoom.");
+  }
+  const { viewWidth, viewHeight } = viewExtent(width, height);
+  const viewX = (finiteOrThrow(pixelX, "pixelX") / width) * viewWidth - viewWidth / 2;
+  const viewY =
+    ((height - finiteOrThrow(pixelY, "pixelY")) / height) * viewHeight - viewHeight / 2;
+  return {
+    x: (viewX - resolved.offsetX) / resolved.zoomX,
+    y: (viewY - resolved.offsetY) / resolved.zoomY,
+  };
+}
+
+function normalizeView(view) {
+  if (!view || typeof view !== "object") {
+    throw new TypeError("view must be an object with zoomX, zoomY, offsetX and offsetY.");
+  }
+  return {
+    zoomX: finiteOrThrow(view.zoomX, "view.zoomX"),
+    zoomY: finiteOrThrow(view.zoomY, "view.zoomY"),
+    offsetX: finiteOrThrow(view.offsetX, "view.offsetX"),
+    offsetY: finiteOrThrow(view.offsetY, "view.offsetY"),
+  };
+}
+
+function positiveFiniteOrThrow(value, name) {
+  const number = finiteOrThrow(value, name);
+  if (number <= 0) {
+    throw new TypeError(`${name} must be positive.`);
+  }
+  return number;
+}
+
 export function boundaryToPlainObject(boundary) {
   return {
     minX: readBoundaryNumber(boundary, "min_x", "minX"),
@@ -1385,7 +1462,13 @@ function isArrayBufferLike(value) {
   return value instanceof ArrayBuffer || ArrayBuffer.isView(value);
 }
 
-function calculateFitView(bounds, width, height, padding) {
+/**
+ * The view that fits `bounds` (world units) into a `width` x `height` frame,
+ * leaving `padding` pixels on every side. This is exactly what `fit: true`
+ * computes, exported so a host can frame a region of its own choosing and
+ * still project through the same numbers the renderer draws with.
+ */
+export function calculateFitView(bounds, width, height, padding) {
   const minX = Number(bounds.minX);
   const maxX = Number(bounds.maxX);
   const minY = Number(bounds.minY);

@@ -8,6 +8,7 @@ import {
   addLayerToProcessor,
   applyProcessorOptions,
   boundaryToPlainObject,
+  calculateFitView,
   clamp01,
   createBaseFrameOptions,
   createCompositeVisibleBitset,
@@ -32,16 +33,25 @@ import {
   resolveFrameFitPadding,
   parseColor,
   positiveIntegerOrDefault,
+  projectToCanvas,
   renderLayersBestEffort,
   resolveFrameView,
   resolveLayerAlpha,
   setDefaultDrillInnerOutline,
   sourceToText,
   pngChunk,
+  unprojectFromCanvas,
   validatePngDimensions,
   validateCompositeSourceCount,
+  viewExtent,
   writePixelRowsToPngRows,
 } from "./shared.js";
+
+// The view math the renderer draws with, for hosts that lay DOM, SVG or a
+// second canvas over the render: frame a region with calculateFitView(), hand
+// the result to withFrame({ view }), then place overlays with projectToCanvas()
+// using `renderer.lastFrame.view`. See README "Overlaying the canvas".
+export { calculateFitView, projectToCanvas, unprojectFromCanvas, viewExtent };
 
 const DEFAULT_STREAM_EXPORT_BAND_BYTES = 128 * 1024 * 1024;
 
@@ -320,6 +330,57 @@ export class GerberRenderer {
     return id;
   }
 
+  /**
+   * Render a Gerber layer as its negative: everything inside the outline (or
+   * the frame's bounds) EXCEPT what the layer draws.
+   *
+   * A solder mask Gerber draws the openings, not the mask, so drawn as ink it
+   * is the photographic negative of the board. This is the browser
+   * counterpart of the Node `inverted` layer option. It is built from the
+   * composite machinery, which needs at least two sources, so the layer is
+   * loaded twice and hidden; the composite is what shows.
+   *
+   * Returns the composite's layer ID, or `null` when the layer was a drill
+   * skipped by `renderDrills: false`.
+   */
+  async renderInvertedLayer(layer, options = {}) {
+    this.assertUsable();
+    if (!this.frame) {
+      throw new Error("renderInvertedLayer must be called inside withFrame().");
+    }
+    const {
+      color,
+      alpha,
+      visible,
+      name,
+      outlineLayerId,
+      ...sourceOptions
+    } = options;
+    const sourceLayerOptions = { ...sourceOptions, visible: false };
+    const first = await this.renderLayer(layer, sourceLayerOptions);
+    if (first === null) {
+      return null;
+    }
+    const firstRecord = this.frame.layers.find(
+      (candidate) => getPublicLayerId(candidate) === first,
+    );
+    if (!firstRecord || isDrillLayerKind(firstRecord.kind)) {
+      throw new TypeError("Inverted layers must be ordinary Gerber layers.");
+    }
+    const second = await this.renderLayer(layer, sourceLayerOptions);
+    const compositeOptions = { inverted: true };
+    if (color != null) compositeOptions.color = color;
+    if (alpha != null) compositeOptions.alpha = alpha;
+    if (visible != null) compositeOptions.visible = visible;
+    if (outlineLayerId != null) compositeOptions.outlineLayerId = outlineLayerId;
+    if (name) {
+      compositeOptions.name = name;
+    } else if (firstRecord.name) {
+      compositeOptions.name = `${firstRecord.name} (inverted)`;
+    }
+    return this.renderCompositeLayer([first, second], compositeOptions);
+  }
+
   refreshFrameCompositeFallbackBounds() {
     const frame = this.frame;
     if (!frame) return;
@@ -373,7 +434,13 @@ export class GerberRenderer {
           ? exportOptions.background
           : (completedFrame.background ?? DEFAULT_BACKGROUND);
 
-      if (background == null) {
+      // A frame that painted its background left an opaque canvas; drawing
+      // the same color under it again would change nothing (and would
+      // double a translucent one), so the canvas is exported as it is.
+      if (
+        background == null ||
+        (completedFrame.backgroundPainted && !("background" in exportOptions))
+      ) {
         return await canvasToBlob(this.canvas, type, quality);
       }
       const cssBackground = normalizeCssColor(background);
@@ -537,11 +604,19 @@ export class GerberRenderer {
 
     const gl = this.getContext();
     const clear = frame.options.clear !== false;
+    // The frame background is painted on the live canvas, not only under an
+    // export: the drill overlay already assumes it is there (holes are filled
+    // with the background color so they read as holes), and a host that sets
+    // it expects to see it. The processor's own clear is transparent, so when
+    // a background is painted the clear is done here instead.
+    const background = clear ? parseExportBackground(frame.options.background) : null;
+    const backgroundPainted = background != null;
+    const clearInProcessor = clear && !backgroundPainted;
     if (frame.layers.length === 0) {
       if (clear) {
-        clearCanvas(gl, this.canvas);
+        clearCanvas(gl, this.canvas, background);
       }
-      this.lastFrame = frame.toResult(null);
+      this.lastFrame = { ...frame.toResult(null), backgroundPainted };
       return;
     }
 
@@ -563,6 +638,10 @@ export class GerberRenderer {
     );
     const activeLayerIds = new Uint32Array(renderEntries.map((entry) => entry.layerId));
     const blendModes = new Uint8Array(renderEntries.map((entry) => entry.blendMode));
+
+    if (backgroundPainted) {
+      clearCanvas(gl, this.canvas, background);
+    }
 
     if (typeof frame.processor.render_with_clear === "function") {
       const colorData = new Float32Array(
@@ -586,7 +665,7 @@ export class GerberRenderer {
           view.offsetX,
           view.offsetY,
           1,
-          clear,
+          clearInProcessor,
         );
       } else {
         frame.processor.render_with_clear(
@@ -597,12 +676,15 @@ export class GerberRenderer {
           view.offsetX,
           view.offsetY,
           1,
-          clear,
+          clearInProcessor,
         );
       }
     } else {
       if (!clear) {
         throw new Error("clear:false requires an updated WASM renderer.");
+      }
+      if (backgroundPainted) {
+        throw new Error("A frame background requires an updated WASM renderer.");
       }
       if (
         frame.layers.some((layer) => layer.alpha != null) ||
@@ -627,7 +709,7 @@ export class GerberRenderer {
 
     assertNoCompositeRenderErrors(frame.processor, frame.layers);
 
-    this.lastFrame = frame.toResult(view);
+    this.lastFrame = { ...frame.toResult(view), backgroundPainted };
   }
 
   getContext() {
@@ -1196,9 +1278,24 @@ function createOutputCanvas(width, height) {
   return null;
 }
 
-function clearCanvas(gl, canvas) {
+function clearCanvas(gl, canvas, background = null) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(0, 0, 0, 0);
+  if (background) {
+    // The drawing buffer is premultiplied unless the host asked otherwise,
+    // and a clear color is written as-is, so a translucent background has to
+    // be premultiplied here to display as the color that was asked for.
+    const alpha = background[3] / 255;
+    const premultiply =
+      (gl.getContextAttributes?.()?.premultipliedAlpha ?? true) ? alpha : 1;
+    gl.clearColor(
+      (background[0] / 255) * premultiply,
+      (background[1] / 255) * premultiply,
+      (background[2] / 255) * premultiply,
+      alpha,
+    );
+  } else {
+    gl.clearColor(0, 0, 0, 0);
+  }
   gl.clear(gl.COLOR_BUFFER_BIT);
 }
