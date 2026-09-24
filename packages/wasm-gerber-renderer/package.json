@@ -1,6 +1,6 @@
 {
   "name": "wasm-gerber-renderer",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Browser and Node WebGL2 Gerber renderer powered by wasm-gerber-viewer",
   "type": "module",
   "main": "./index.js",
@@ -13,7 +13,80 @@
     "./node": {
       "types": "./node.d.ts",
       "default": "./node.js"
-    }
+    },
+    "./board": {
+      "types": "./board.d.ts",
+      "default": "./board.js"
+    },
+    "./board.js": {
+      "types": "./board.d.ts",
+      "default": "./board.js"
+    },
+    "./diff": {
+      "types": "./diff.d.ts",
+      "default": "./diff.js"
+    },
+    "./diff.js": {
+      "types": "./diff.d.ts",
+      "default": "./diff.js"
+    },
+    "./drills": {
+      "types": "./drills.d.ts",
+      "default": "./drills.js"
+    },
+    "./drills.js": {
+      "types": "./drills.d.ts",
+      "default": "./drills.js"
+    },
+    "./palette": {
+      "types": "./palette.d.ts",
+      "default": "./palette.js"
+    },
+    "./palette.js": {
+      "types": "./palette.d.ts",
+      "default": "./palette.js"
+    },
+    "./layers": {
+      "types": "./layers.d.ts",
+      "default": "./layers.js"
+    },
+    "./layers.js": {
+      "types": "./layers.d.ts",
+      "default": "./layers.js"
+    },
+    "./outline": {
+      "types": "./outline.d.ts",
+      "default": "./outline.js"
+    },
+    "./outline.js": {
+      "types": "./outline.d.ts",
+      "default": "./outline.js"
+    },
+    "./view": {
+      "types": "./view.d.ts",
+      "default": "./view.js"
+    },
+    "./view.js": {
+      "types": "./view.d.ts",
+      "default": "./view.js"
+    },
+    "./contour": {
+      "types": "./contour.d.ts",
+      "default": "./contour.js"
+    },
+    "./contour.js": {
+      "types": "./contour.d.ts",
+      "default": "./contour.js"
+    },
+    "./raster": {
+      "types": "./raster.d.ts",
+      "default": "./raster.js"
+    },
+    "./raster.js": {
+      "types": "./raster.d.ts",
+      "default": "./raster.js"
+    },
+    "./contour-worker.js": "./contour-worker.js"
   },
   "bin": {
     "gerber-renderer": "bin/wasm-gerber-renderer.js"
@@ -32,6 +105,25 @@
     "node.js",
     "node.d.ts",
     "shared.js",
+    "board.js",
+    "board.d.ts",
+    "diff.js",
+    "diff.d.ts",
+    "drills.js",
+    "drills.d.ts",
+    "palette.js",
+    "palette.d.ts",
+    "layers.js",
+    "layers.d.ts",
+    "outline.js",
+    "outline.d.ts",
+    "view.js",
+    "view.d.ts",
+    "contour.js",
+    "contour.d.ts",
+    "raster.js",
+    "raster.d.ts",
+    "contour-worker.js",
     "README.md",
     "README.kr.md",
     "README.zh-Hans.md",
@@ -48,8 +140,9 @@
     "prepack": "npm run build:wasm && npm run stage:wasm",
     "postpack": "npm run clean:wasm",
     "prepublishOnly": "npm run check",
-    "check": "node --check index.js && node --check node.js && node --check shared.js && node --check bin/wasm-gerber-renderer.js && node --check scripts/stage-wasm.mjs && node --check scripts/clean-wasm.mjs && node --check scripts/benchmark-composite-4k.mjs && tsc -p test/types/tsconfig.json && node --test test/*.test.mjs",
-    "verify:publish": "npm run check && npm pack --dry-run"
+    "check": "node --check index.js && node --check node.js && node --check shared.js && node --check board.js && node --check diff.js && node --check drills.js && node --check palette.js && node --check layers.js && node --check outline.js && node --check view.js && node --check contour.js && node --check raster.js && node --check contour-worker.js && node --check bin/wasm-gerber-renderer.js && node --check scripts/stage-wasm.mjs && node --check scripts/clean-wasm.mjs && node --check scripts/benchmark-composite-4k.mjs && tsc -p test/types/tsconfig.json && node --test test/*.test.mjs",
+    "verify:publish": "npm run check && npm pack --dry-run",
+    "benchmark:board-diff-4k": "cd ../.. && node scripts/benchmark-board-diff-4k.mjs"
   },
   "license": "MIT",
   "repository": {

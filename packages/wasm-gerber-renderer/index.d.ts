@@ -201,6 +201,15 @@ export declare class GerberRenderer {
   /** The last successfully completed frame, or `null` before one exists. */
   readonly lastFrame: FrameResult | null;
 
+  /** The canvas this renderer draws on. */
+  readonly canvas: GerberCanvas;
+
+  /**
+   * The renderer's WebGL2 context (created on first use), e.g. to read a
+   * completed frame back with `gl.readPixels`. See `raster.js`.
+   */
+  getContext(): WebGL2RenderingContext;
+
   withFrame(
     frameOptions: FrameOptions,
     callback: () => void | Promise<void>,

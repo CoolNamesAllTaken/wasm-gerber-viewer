@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board diff demo</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d232b; --muted: #5d6673; --line: #d9dde3;
+    --accent: #2563eb; --removed: #dc3333; --added: #2fa84a;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1f25; --ink: #e6e9ee; --muted: #9aa3ae; --line: #2c333c; --accent: #6ea0ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 16px 20px 4px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--muted); max-width: 70ch; }
+  main { display: grid; gap: 16px; padding: 16px 20px 32px; grid-template-columns: minmax(0, 1fr) 300px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  .boards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .boards figure { margin: 0; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  /* A checkerboard behind the board renders: holes and the area outside the
+     outline are transparent, so this shows through them. */
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden;
+    background: repeating-conic-gradient(#80808033 0% 25%, transparent 0% 50%) 0 0 / 16px 16px; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .diff-stage { background: #0e1116; aspect-ratio: 16 / 10; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; align-items: center; }
+  .toolbar button { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px;
+    padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .toolbar button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .toolbar button .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--muted); }
+  .toolbar button.changed .dot { background: var(--removed); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  ol { margin: 0; padding-left: 20px; }
+  li button { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 0; text-align: left; }
+  #status, #timing { color: var(--muted); font-size: 12px; }
+  rect.focus { fill: none; stroke: #ffd400; stroke-width: 2; vector-effect: non-scaling-stroke; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Board diff</h1>
+  <p>Two revisions of KiCad's <code>pic_programmer</code> demo, rendered with
+  <code>wasm-gerber-renderer/board.js</code> (realistic faces, see-through holes) and compared layer by layer with
+  <code>wasm-gerber-renderer/diff.js</code> (GPU composites, one shared frame). The head revision moves a mounting hole,
+  deletes six tracks and widens one; its outline file differs from the base only in timestamps.</p>
+  <p id="status">Loading…</p>
+</header>
+<main>
+  <div style="display:grid;gap:16px;min-width:0">
+    <section>
+      <div class="toolbar" id="sides">
+        <strong style="margin-right:6px">Board</strong>
+        <button data-side="top" aria-pressed="true">Top</button>
+        <button data-side="bottom" aria-pressed="false">Bottom</button>
+      </div>
+      <div class="boards">
+        <figure><div class="stage"><canvas id="baseBoard"></canvas></div><figcaption>Base</figcaption></figure>
+        <figure><div class="stage"><canvas id="headBoard"></canvas></div><figcaption>Head</figcaption></figure>
+      </div>
+    </section>
+    <section>
+      <div class="toolbar" id="layers"><strong style="margin-right:6px">Layer diff</strong></div>
+      <div class="stage diff-stage"><canvas id="diff"></canvas><svg id="overlay"></svg></div>
+      <div class="legend">
+        <span><i style="background:var(--removed)"></i>removed</span>
+        <span><i style="background:var(--added)"></i>added</span>
+        <span><i style="background:#9ea3ad;opacity:.6"></i>unchanged</span>
+        <span id="timing"></span>
+      </div>
+    </section>
+  </div>
+  <section>
+    <h2>Changes</h2>
+    <p id="summary" style="margin:0 0 8px;color:var(--muted)"></p>
+    <ol id="regions"></ol>
+    <p style="margin-top:12px"><button id="reset" hidden>Show whole board</button></p>
+  </section>
+</main>
+<script type="module">
+import { createGerberRenderer } from "../../packages/wasm-gerber-renderer/index.js";
+import { renderBoard } from "../../packages/wasm-gerber-renderer/board.js";
+import { groupBoardLayers } from "../../packages/wasm-gerber-renderer/layers.js";
+import { analyzeBoardDiff, renderLayerDiff } from "../../packages/wasm-gerber-renderer/diff.js";
+import { fitView, frameView, padBounds, worldToPixelRect } from "../../packages/wasm-gerber-renderer/view.js";
+
+const FILES = [
+  "pic_programmer-top_layer.gbr", "pic_programmer-bottom_layer.gbr",
+  "pic_programmer-F_Mask.gbr", "pic_programmer-B_Mask.gbr",
+  "pic_programmer-F_Silkscreen.gbr", "pic_programmer-B_Silkscreen.gbr",
+  "pic_programmer-Edge_Cuts.gbr", "pic_programmer-PTH.drl", "pic_programmer-NPTH.drl",
+];
+const status = document.getElementById("status");
+const say = (text) => { status.textContent = text; };
+
+async function load(revision) {
+  return Promise.all(FILES.map(async (name) => {
+    const response = await fetch(`${revision}/${name}`);
+    if (!response.ok) throw new Error(`${revision}/${name}: HTTP ${response.status}`);
+    const content = await response.text();
+    return { name, source: content, content };
+  }));
+}
+
+function sizeCanvas(canvas) {
+  const box = canvas.getBoundingClientRect();
+  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  return { width: Math.round(box.width * scale), height: Math.round(box.height * scale), scale, box };
+}
+
+const [baseFiles, headFiles] = await Promise.all([load("base"), load("head")]);
+const base = groupBoardLayers(baseFiles);
+const head = groupBoardLayers(headFiles);
+const layerPairs = [
+  ["F.Cu", base.top.copper, head.top.copper], ["B.Cu", base.bottom.copper, head.bottom.copper],
+  ["F.Mask", base.top.mask, head.top.mask], ["B.Mask", base.bottom.mask, head.bottom.mask],
+  ["F.Silk", base.top.silk, head.top.silk], ["B.Silk", base.bottom.silk, head.bottom.silk],
+  ["Edge.Cuts", base.outline, head.outline], ["Drills", base.drills, head.drills],
+].map(([name, b, h]) => ({ name, base: b, head: h }));
+
+const baseRenderer = await createGerberRenderer(document.getElementById("baseBoard"));
+const headRenderer = await createGerberRenderer(document.getElementById("headBoard"));
+const diffCanvas = document.getElementById("diff");
+const diffRenderer = await createGerberRenderer(diffCanvas);
+// Analysis draws off-screen, on a detached canvas of its own.
+const analysisRenderer = await createGerberRenderer(document.createElement("canvas"));
+
+let side = "top";
+async function drawBoards() {
+  const { width, height } = sizeCanvas(document.getElementById("baseBoard"));
+  // One view for both revisions so they line up exactly.
+  const view = frameView(fitView(analysis.bounds, width, height, 12));
+  const t0 = performance.now();
+  await renderBoard(baseRenderer, base, { side, width, height, view, palette: { mask: "green" } });
+  await renderBoard(headRenderer, head, { side, width, height, view, palette: { mask: "green" } });
+  return performance.now() - t0;
+}
+
+say("Analyzing layer diffs…");
+const diffSize = sizeCanvas(diffCanvas);
+const t0 = performance.now();
+const analysis = await analyzeBoardDiff(analysisRenderer, layerPairs, {
+  width: diffSize.width, height: diffSize.height, padding: 12,
+});
+const analyzeMs = performance.now() - t0;
+window.boardDiff = analysis;
+
+const layerBar = document.getElementById("layers");
+let current = analysis.layers.find((layer) => layer.changed)?.name ?? "F.Cu";
+for (const layer of analysis.layers) {
+  const button = document.createElement("button");
+  button.innerHTML = `<span class="dot"></span>${layer.name}`;
+  button.dataset.layer = layer.name;
+  button.className = layer.changed ? "changed" : "";
+  button.title = layer.changed ? `${layer.regions.length} changed region(s)` : "unchanged";
+  button.addEventListener("click", () => { current = layer.name; focus = null; drawDiff(); });
+  layerBar.appendChild(button);
+}
+
+let focus = null;
+const overlay = document.getElementById("overlay");
+async function drawDiff() {
+  for (const button of layerBar.querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.layer === current));
+  }
+  const pair = layerPairs.find((layer) => layer.name === current);
+  const report = analysis.layers.find((layer) => layer.name === current);
+  const { width, height, scale } = sizeCanvas(diffCanvas);
+  const view = focus
+    ? frameView(fitView(padBounds(focus, 2), width, height, 24))
+    : frameView(analysis.view);
+  const t = performance.now();
+  const result = await renderLayerDiff(diffRenderer, pair, {
+    width, height, view,
+    underlay: current === "Edge.Cuts" ? [] : [{ source: base.outline.source, color: [0.6, 0.6, 0.6], alpha: 0.5 }],
+  });
+  document.getElementById("timing").textContent =
+    `diff frame ${(performance.now() - t).toFixed(0)} ms · analysis of ${analysis.layers.length} layers ${analyzeMs.toFixed(0)} ms at ${analysis.width}×${analysis.height}`;
+
+  overlay.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  overlay.innerHTML = "";
+  if (focus) {
+    const rect = worldToPixelRect(result.view, focus);
+    const node = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    node.setAttribute("class", "focus");
+    for (const [key, value] of Object.entries({ x: rect.x - 4, y: rect.y - 4, width: rect.width + 8, height: rect.height + 8 })) {
+      node.setAttribute(key, value.toFixed(1));
+    }
+    overlay.appendChild(node);
+  }
+
+  const list = document.getElementById("regions");
+  list.innerHTML = "";
+  document.getElementById("summary").textContent = report.identical
+    ? `${current}: same geometry in both revisions (the files differ at most in comments and attributes, e.g. timestamps), so it was not rendered.`
+    : report.changed
+      ? `${current}: ${report.regions.length} changed region(s), ${report.removedPixels} px removed, ${report.addedPixels} px added.`
+      : `${current}: files differ, but they draw identical pixels.`;
+  report.regions.forEach((region, index) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    const w = region.world;
+    button.textContent = `${region.kind} · (${((w.minX + w.maxX) / 2).toFixed(1)}, ${((w.minY + w.maxY) / 2).toFixed(1)}) mm · ${(w.maxX - w.minX).toFixed(1)}×${(w.maxY - w.minY).toFixed(1)} mm`;
+    button.dataset.region = String(index);
+    button.addEventListener("click", () => { focus = region.world; drawDiff(); });
+    item.appendChild(button);
+    list.appendChild(item);
+  });
+  const reset = document.getElementById("reset");
+  reset.hidden = !focus;
+  reset.onclick = () => { focus = null; drawDiff(); };
+}
+
+for (const button of document.querySelectorAll("#sides button")) {
+  button.addEventListener("click", async () => {
+    side = button.dataset.side;
+    for (const other of document.querySelectorAll("#sides button")) {
+      other.setAttribute("aria-pressed", String(other === button));
+    }
+    await drawBoards();
+  });
+}
+
+const boardMs = await drawBoards();
+await drawDiff();
+say(`Changed layers: ${analysis.layers.filter((l) => l.changed).map((l) => l.name).join(", ") || "none"} · boards drawn in ${boardMs.toFixed(0)} ms`);
+document.body.dataset.ready = "true";
+</script>
+</body>
+</html>

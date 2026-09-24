@@ -9,5 +9,5 @@
     "target": "ES2022",
     "types": ["node"]
   },
-  "files": ["composite-api.ts", "view-api.ts"]
+  "files": ["composite-api.ts", "view-api.ts", "board-diff-api.ts"]
 }
