@@ -255,6 +255,44 @@ test("realistic board: holes and the area outside the outline are transparent", 
   expect(result.onBackground.notch).toEqual([0, 0, 255, 255]);
 });
 
+test("empty layers: header-only files are skipped, a mask without openings covers the board", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { board, diff, renderer, rect, outline, at } = window.t;
+    // What KiCad writes for a layer with nothing on it.
+    const empty = "%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\nG04 APERTURE LIST*\nG04 APERTURE END LIST*\nM02*\n";
+    const edge = outline([[0, 0], [30, 0], [30, 20], [0, 20]]);
+    const palette = { mask: "#00ff00", maskAlpha: 1, finish: "#ffff00", substrate: "#ff00ff", copper: "#ff8000" };
+    await board.renderBoard(renderer, {
+      outline: edge,
+      copper: rect(10, 10, 4, 4),
+      mask: empty, // no openings: mask everywhere, pad covered
+      silk: empty,
+      paste: empty,
+      drills: [{ source: "M48\nMETRIC\n%\nM30\n", name: "b-NPTH.drl" }],
+    }, { width: 300, height: 200, padding: 0, palette, paste: true });
+    const covered = { pad: at(10, 10), board: at(25, 15), outside: at(-1, -1) };
+
+    const report = await diff.analyzeLayerDiff(renderer, { base: empty, head: rect(5, 5, 2, 2) }, { width: 200, height: 200 });
+    const bothEmpty = await diff.analyzeLayerDiff(renderer, { base: empty, head: empty.replace("G01*", "G01*\nG04 x*") }, { width: 64, height: 64 });
+    const rendered = await diff.renderLayerDiff(renderer, { base: rect(5, 5, 2, 2), head: empty }, { width: 200, height: 200 });
+    return {
+      covered,
+      addedOnly: [report.changed, report.addedPixels > 0, report.removedPixels],
+      bothEmpty: [bothEmpty.changed, bothEmpty.identical],
+      removedDrawn: rendered.ids.removed !== null && rendered.ids.added === null,
+      removedPixel: at(5, 5),
+    };
+  });
+  expect(result.covered.pad).toEqual([0, 255, 0, 255]);
+  expect(result.covered.board).toEqual([0, 255, 0, 255]);
+  expect(result.covered.outside[3]).toBe(0);
+  expect(result.addedOnly).toEqual([true, true, 0]);
+  expect(result.bothEmpty).toEqual([false, true]);
+  expect(result.removedDrawn).toBe(true);
+  expect(result.removedPixel[0]).toBeGreaterThan(200);
+  expect(result.removedPixel[1]).toBeLessThan(100);
+});
+
 test("CSS hole mask and 2D canvas cut open the holes they are given", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { drills } = window.t;

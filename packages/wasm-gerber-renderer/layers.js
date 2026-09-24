@@ -97,6 +97,16 @@ export function withoutProfile(text) {
   return kept.join("");
 }
 
+/**
+ * Whether a Gerber draws anything: a D01 (interpolate) or D03 (flash)
+ * operation, or a region. Exporters write a header-only file for a layer with
+ * nothing on it (KiCad's B.SilkS on a board without bottom silkscreen); the
+ * renderer rejects such a file, so callers skip it.
+ */
+export function hasGeometry(text) {
+  return typeof text === "string" && /D0?[13]\*|G36\*/.test(text);
+}
+
 // ── Which layer is this? ────────────────────────────────────────────────────
 
 /**

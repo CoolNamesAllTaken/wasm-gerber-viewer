@@ -10,7 +10,7 @@ import {
   silkColor,
   toHexColor,
 } from "../palette.js";
-import { groupBoardLayers, layerRole, plotsProfile, withoutProfile } from "../layers.js";
+import { groupBoardLayers, hasGeometry, layerRole, plotsProfile, withoutProfile } from "../layers.js";
 import {
   cutHoles,
   diffHoles,
@@ -385,6 +385,10 @@ test("prepareDiffSources converts drill files to Gerber and can strip profiles",
 
 // ── orchestration against a recording renderer ──────────────────────────────
 
+// Minimal Gerbers for the recording renderer: one that draws, one that does not.
+const DRAWS = "%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1*%\nD10*\nX0Y0D03*\nM02*\n";
+const EMPTY = "%FSLAX46Y46*%\n%MOMM*%\nG04 APERTURE LIST*\nG04 APERTURE END LIST*\nM02*\n";
+
 function recordingRenderer() {
   const calls = [];
   let next = 0;
@@ -408,7 +412,7 @@ function recordingRenderer() {
 
 test("addLayerDiff builds hidden sources and three classifying composites", async () => {
   const renderer = recordingRenderer();
-  const ids = await addLayerDiff(renderer, { base: "G04*\nM02*\n", head: ["M02*\n", "M02*\n"] }, {
+  const ids = await addLayerDiff(renderer, { base: DRAWS, head: [DRAWS, DRAWS] }, {
     style: { added: { color: [0, 0, 1] } },
     showUnchanged: false,
   });
@@ -423,7 +427,7 @@ test("addLayerDiff builds hidden sources and three classifying composites", asyn
   assert.deepEqual(ids, { unchanged: 3, removed: 4, added: 5 });
 
   const absent = recordingRenderer();
-  const onlyHead = await addLayerDiff(absent, { base: null, head: "M02*\n" });
+  const onlyHead = await addLayerDiff(absent, { base: null, head: DRAWS });
   assert.equal(onlyHead.added, 0);
   assert.equal(absent.calls.length, 1);
   assert.equal(absent.calls[0][2].alpha, 1);
@@ -432,8 +436,8 @@ test("addLayerDiff builds hidden sources and three classifying composites", asyn
 test("addBoardLayers stacks substrate, copper, mask, finish, silk and see-through drills", async () => {
   const renderer = recordingRenderer();
   const ids = await addBoardLayers(renderer, {
-    outline: { source: "M02*\n", name: "edge.gbr" },
-    top: { copper: "M02*\n", mask: "M02*\n", silk: "M02*\n" },
+    outline: { source: DRAWS, name: "edge.gbr" },
+    top: { copper: DRAWS, mask: DRAWS, silk: DRAWS },
     drills: [
       { source: "M48\nMETRIC\nT1C0.8\n%\nT1\nX1.0Y1.0\nM30\n", name: "b-PTH.drl" },
       // Header-only, as KiCad writes for a board without NPTH holes: skipped.
@@ -471,7 +475,7 @@ test("addBoardLayers stacks substrate, copper, mask, finish, silk and see-throug
   assert.equal(ids.drills.length, 1);
 
   const bare = recordingRenderer();
-  await addBoardLayers(bare, { copper: "M02*\n" }, { substrate: false, holes: false });
+  await addBoardLayers(bare, { copper: DRAWS }, { substrate: false, holes: false });
   assert.equal(bare.calls.length, 1);
 });
 
@@ -483,4 +487,49 @@ test("faceRasterSize honors density, minimum and texture ceilings", () => {
   assert.equal(panel.width, 4096);
   assert.ok(panel.height <= 4096);
   assert.ok(Math.abs(panel.width / panel.height - 1.5) < 0.01);
+});
+
+test("empty layers: skipped on a board face, a mask without openings covers the board", async () => {
+  const renderer = recordingRenderer();
+  const ids = await addBoardLayers(renderer, {
+    outline: { source: DRAWS, name: "edge.gbr" },
+    // KiCad writes header-only files for layers with nothing on them.
+    copper: DRAWS,
+    mask: EMPTY,
+    silk: EMPTY,
+    paste: EMPTY,
+  }, { paste: true });
+  const names = renderer.calls
+    .filter(([kind]) => kind === "composite")
+    .map(([, , options]) => options.name);
+  assert.deepEqual(names, ["Substrate", "Solder mask"]);
+  const maskCall = renderer.calls.find(([kind, , options]) => kind === "composite" && options.name === "Solder mask");
+  assert.deepEqual(maskCall[2].visibleAreas, ["00", "11"], "board-wide mask");
+  assert.equal(maskCall[2].outlineLayerId, ids.outline);
+  assert.equal(ids.silk, null);
+  assert.equal(ids.paste, null);
+  assert.equal(ids.finish, null, "no openings, no exposed copper");
+  assert.ok(!renderer.calls.some(([kind]) => kind === "inverted"));
+
+  const noOutline = recordingRenderer();
+  await addBoardLayers(noOutline, { outline: EMPTY, copper: EMPTY, silk: EMPTY });
+  assert.equal(noOutline.calls.length, 0, "nothing drawable, nothing drawn");
+});
+
+test("empty layers: an empty side of a diff is an absent side", async () => {
+  assert.equal(hasGeometry(EMPTY), false);
+  assert.equal(hasGeometry(DRAWS), true);
+  assert.equal(hasGeometry("G36*\nX0Y0D02*\nG37*\n"), true);
+  assert.equal(hasGeometry("%ADD10C,1*%\nD10*\nM02*\n"), false, "an aperture select is not a draw");
+  const [prepared] = await prepareDiffSources(EMPTY);
+  assert.equal(prepared.empty, true);
+
+  const renderer = recordingRenderer();
+  const ids = await addLayerDiff(renderer, { base: EMPTY, head: DRAWS });
+  assert.equal(ids.added, 0);
+  assert.equal(renderer.calls.length, 1);
+  const none = recordingRenderer();
+  const nothing = await addLayerDiff(none, { base: EMPTY, head: [EMPTY] });
+  assert.deepEqual(nothing, { removed: null, added: null, unchanged: null });
+  assert.equal(none.calls.length, 0);
 });

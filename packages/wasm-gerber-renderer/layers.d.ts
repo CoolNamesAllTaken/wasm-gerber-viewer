@@ -23,6 +23,8 @@ export type LayerRole = {
 export declare const LAYER_ROLES: readonly LayerRoleName[];
 
 export declare function plotsProfile(text: string): boolean;
+/** Whether a Gerber draws anything (a D01/D03 operation or a region). */
+export declare function hasGeometry(text: string): boolean;
 export declare function withoutProfile(text: string): string;
 export declare function layerRole(name?: string, content?: string): LayerRole;
 

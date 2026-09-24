@@ -26,7 +26,7 @@ import {
   looksLikeDrillContent,
   sourceToText,
 } from "./shared.js";
-import { withoutProfile } from "./layers.js";
+import { hasGeometry, withoutProfile } from "./layers.js";
 import { holesToGerber, parseExcellon } from "./drills.js";
 import { readRendererPixels } from "./raster.js";
 import { pixelRectToWorld, pixelsPerUnit, withFrameSize } from "./view.js";
@@ -105,7 +105,9 @@ export async function prepareDiffSources(side, { stripProfile = false } = {}) {
       source: text,
       name,
       kind: "gerber",
-      empty: drill && !/D0[13]\*/.test(text),
+      // A file that draws nothing (a header-only drill or Gerber) is an
+      // absent side: the renderer would reject it.
+      empty: !hasGeometry(text),
     });
   }
   return prepared;
