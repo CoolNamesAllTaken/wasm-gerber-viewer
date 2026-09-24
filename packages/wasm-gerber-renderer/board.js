@@ -27,7 +27,7 @@
 import { calculateFitView, sourceToText } from "./shared.js";
 import { boardPalette, toHexColor } from "./palette.js";
 import { flattenOnto } from "./raster.js";
-import { withoutProfile } from "./layers.js";
+import { hasGeometry, withoutProfile } from "./layers.js";
 import { parseExcellon } from "./drills.js";
 
 /** The layer roles of one face, in the order they are drawn. */
@@ -119,52 +119,68 @@ export async function addBoardLayers(renderer, board, options = {}) {
 
   const hidden = (layer) => renderer.renderLayer(layer, { visible: false });
 
+  // Read every face layer once. A layer that draws nothing is treated as
+  // absent -- except the mask: a mask with no openings covers the whole board.
+  const load = async (entry, stripIt) => {
+    if (!entry) return null;
+    const text = await layerText(entry, stripIt);
+    return hasGeometry(text.source) ? text : null;
+  };
+  const outline = await load(face.outline, false);
+  const copper = await load(face.copper, strip);
+  const maskText = face.mask ? await layerText(face.mask, strip) : null;
+  const mask = maskText && hasGeometry(maskText.source) ? maskText : null;
+  const maskEverywhere = maskText != null && mask == null;
+  const silkText = palette.silk ? await load(face.silk, strip) : null;
+  const pasteText = options.paste === true ? await load(face.paste, strip) : null;
+
   let outlineId = null;
-  let outline = null;
-  if (face.outline) {
-    outline = await layerText(face.outline, false);
+  if (outline) {
     outlineId = await hidden(outline);
     ids.outline = outlineId;
   }
 
-  if (options.substrate !== false) {
-    // The board's interior: "00" (inside the outline, no stroke) plus "11" (the
-    // stroke itself), from two copies of the outline -- a composite needs two
-    // sources. Without an outline, the frame bounds (a rectangle) are used.
+  // The board's interior: "00" (inside the outline, no stroke) plus "11" (the
+  // stroke itself), from two copies of the outline -- a composite needs two
+  // sources. Without an outline, the frame bounds (a rectangle) are used.
+  const boardArea = async (name, color, alpha) => {
     if (outline) {
       const twin = await hidden(outline);
-      ids.substrate = await renderer.renderCompositeLayer([outlineId, twin], {
-        name: "Substrate",
+      return renderer.renderCompositeLayer([outlineId, twin], {
+        name,
         visibleAreas: ["00", "11"],
         outlineLayerId: outlineId,
-        color: palette.substrate,
-        alpha: 1,
-      });
-    } else if (face.copper || face.mask) {
-      const anchor = await hidden(await layerText(face.mask ?? face.copper, strip));
-      const twin = await hidden(await layerText(face.mask ?? face.copper, strip));
-      ids.substrate = await renderer.renderCompositeLayer([anchor, twin], {
-        name: "Substrate",
-        visibleAreas: ["00", "11"],
-        color: palette.substrate,
-        alpha: 1,
+        color,
+        alpha,
       });
     }
+    const anchorText = mask ?? copper;
+    if (!anchorText) return null;
+    const anchor = await hidden(anchorText);
+    const twin = await hidden(anchorText);
+    return renderer.renderCompositeLayer([anchor, twin], {
+      name,
+      visibleAreas: ["00", "11"],
+      color,
+      alpha,
+    });
+  };
+
+  if (options.substrate !== false) {
+    ids.substrate = await boardArea("Substrate", palette.substrate, 1);
   }
 
-  let copper = null;
-  if (face.copper) {
-    copper = await layerText(face.copper, strip);
+  if (copper) {
     ids.copper = await renderer.renderLayer(copper, {
       color: palette.copper,
       alpha: 1,
     });
   }
 
-  let mask = null;
   let maskSourceId = null;
-  if (face.mask) {
-    mask = await layerText(face.mask, strip);
+  if (maskEverywhere) {
+    ids.mask = await boardArea("Solder mask", palette.mask.color, palette.mask.alpha);
+  } else if (mask) {
     const maskOptions = {
       name: "Solder mask",
       color: palette.mask.color,
@@ -184,8 +200,8 @@ export async function addBoardLayers(renderer, board, options = {}) {
     });
   }
 
-  if (face.silk && palette.silk) {
-    const silk = await layerText(face.silk, strip);
+  if (silkText) {
+    const silk = silkText;
     const style = { color: palette.silk.color, alpha: palette.silk.alpha };
     if (options.clipSilk !== false && (maskSourceId != null || outlineId != null)) {
       // Silk is printed only on mask and only on the board. As a composite of
@@ -213,8 +229,8 @@ export async function addBoardLayers(renderer, board, options = {}) {
     }
   }
 
-  if (options.paste === true && face.paste) {
-    ids.paste = await renderer.renderLayer(await layerText(face.paste, strip), {
+  if (pasteText) {
+    ids.paste = await renderer.renderLayer(pasteText, {
       color: palette.paste.color,
       alpha: palette.paste.alpha,
     });
