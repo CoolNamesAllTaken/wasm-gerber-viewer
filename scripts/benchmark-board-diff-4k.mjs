@@ -13,6 +13,7 @@
 // is reported as such -- its timings say nothing about a real GPU) and, per
 // layer, the time to render the diff overlay and to analyze it (classification
 // frame + one readback + region extraction), plus the whole-board analysis.
+// `plainTwoLayerMs` is the baseline: both revisions drawn as ordinary layers.
 import { spawn } from "node:child_process";
 
 import { chromium } from "playwright";
@@ -112,6 +113,14 @@ try {
 
       const perLayer = [];
       for (const pair of layers) {
+        // Baseline: the same two revisions drawn as two ordinary layers.
+        t = performance.now();
+        await renderer.withFrame({ width, height, view, compositeMode: "stack" }, async () => {
+          await renderer.renderLayer(pair.base);
+          await renderer.renderLayer(pair.head);
+        });
+        finish();
+        const plainMs = performance.now() - t;
         t = performance.now();
         await renderLayerDiff(renderer, pair, { width, height, view });
         finish(); // wait for the GPU, not just the command submission
@@ -121,6 +130,7 @@ try {
         const analyzeMs = performance.now() - t;
         perLayer.push({
           name: pair.name,
+          plainTwoLayerMs: Math.round(plainMs),
           renderMs: Math.round(renderMs),
           analyzeMs: Math.round(analyzeMs),
           regions: report.regions.length,
@@ -132,8 +142,9 @@ try {
     },
     { width, height },
   );
-  const classification = classifyWebGlRenderer(result.rendererName);
-  console.log(`WebGL renderer: ${result.rendererName} (${classification.kind ?? classification})`);
+  const { softwareRenderer, hardwareRendererVerified } = classifyWebGlRenderer("", result.rendererName);
+  const kind = softwareRenderer ? "SOFTWARE -- not a GPU measurement" : hardwareRendererVerified ? "hardware" : "unverified";
+  console.log(`WebGL renderer: ${result.rendererName} (${kind})`);
   console.log(`Frame: ${result.width} x ${result.height}`);
   console.table(result.perLayer);
   console.log(`analyzeBoardDiff (measure + 4 layers): ${result.boardMs} ms`);
