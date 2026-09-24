@@ -322,6 +322,10 @@ so **holes are transparent through every layer**, laminate included, and so is
 everything outside the outline: put the canvas over any background and it shows
 through. With an opaque `background`, holes show that color instead.
 
+Header-only files (KiCad writes one for a layer with nothing on it, and for a
+board without NPTH holes) are skipped; an empty mask has no openings, so it is
+drawn over the whole board. In diffs an empty file is an absent side.
+
 `addBoardLayers(renderer, board, options)` does the same inside a frame you
 opened yourself. KiCad's "plot on all layers" board outline is removed from
 face layers by its Gerber X2 `Profile` attribute (`stripProfile: false` keeps it).
