@@ -26,7 +26,7 @@ export type BoardLayerOptions = {
   substrate?: boolean;
   /** Finish color on copper in mask openings (default true). */
   finish?: boolean;
-  /** Remove silkscreen from mask openings (default true). */
+  /** Remove silkscreen from mask openings and outside the outline (default true). */
   clipSilk?: boolean;
   /** Draw solder paste (default false). */
   paste?: boolean;

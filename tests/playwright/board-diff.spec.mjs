@@ -199,22 +199,31 @@ test("realistic board: holes and the area outside the outline are transparent", 
     const copper = rect(10, 10, 4, 4); // pad at (10,10), 8..12
     const mask = rect(10, 10, 5, 5); // opening 7.5..12.5
     const holes = { source: drill([[10, 10, 1.5]]), name: "b-PTH.drl" };
+    // Silk: a bar across the board that runs off its left edge and into the
+    // notch, and one that crosses the mask opening.
+    const stroke = (x1, y1, x2, y2) =>
+      `%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1*%\nD10*\nX${x1 * 1e6}Y${y1 * 1e6}D02*\nX${x2 * 1e6}Y${y2 * 1e6}D01*\n`;
+    const silk = stroke(-3, 15, 25, 15) + `X${5 * 1e6}Y${11 * 1e6}D02*\nX${15 * 1e6}Y${11 * 1e6}D01*\nM02*\n`;
     const { ids } = await board.renderBoard(renderer, {
       outline: edge,
       copper,
       mask,
+      silk,
       drills: [holes],
     }, {
       width: 600,
       height: 400,
       padding: 0,
-      palette: { mask: "#00ff00", maskAlpha: 1, finish: "#ffff00", substrate: "#ff00ff" },
+      palette: { mask: "#00ff00", maskAlpha: 1, finish: "#ffff00", substrate: "#ff00ff", silk: "#ffffff" },
     });
     const transparent = {
       hole: at(10, 10),
       notch: at(27, 17),
       outside: at(-1, -1),
+      silkOffBoard: at(-2, 15),
+      silkInNotch: at(23, 15),
     };
+    const silkShown = { onMask: at(5, 15), beforeOpening: at(6, 11), inOpening: at(11.8, 11) };
     const shown = {
       mask: at(3, 3),
       finish: at(11.8, 10),
@@ -226,12 +235,17 @@ test("realistic board: holes and the area outside the outline are transparent", 
       width: 600, height: 400, padding: 0, background: "#0000ff",
       palette: { mask: "#00ff00", maskAlpha: 1, finish: "#ffff00", substrate: "#ff00ff" },
     });
-    return { ids, transparent, shown, onBackground: { hole: at(10, 10), notch: at(27, 17) } };
+    return { ids, transparent, shown, silkShown, onBackground: { hole: at(10, 10), notch: at(27, 17) } };
   });
   expect(result.ids.drills).toHaveLength(1);
   expect(result.transparent.hole[3]).toBe(0);
   expect(result.transparent.notch[3]).toBe(0);
   expect(result.transparent.outside[3]).toBe(0);
+  expect(result.transparent.silkOffBoard[3]).toBe(0);
+  expect(result.transparent.silkInNotch[3]).toBe(0);
+  expect(result.silkShown.onMask).toEqual([255, 255, 255, 255]);
+  expect(result.silkShown.beforeOpening).toEqual([255, 255, 255, 255]);
+  expect(result.silkShown.inOpening).toEqual([255, 255, 0, 255]); // finish, not silk
   expect(result.shown.mask).toEqual([0, 255, 0, 255]);
   expect(result.shown.finish).toEqual([255, 255, 0, 255]);
   expect(result.shown.pullback).toEqual([255, 0, 255, 255]);

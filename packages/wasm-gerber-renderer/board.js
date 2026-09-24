@@ -10,7 +10,8 @@
  *   3. mask       -- the mask Gerber draws the OPENINGS, so it is inverted:
  *                    mask color everywhere inside the outline except openings
  *   4. finish     -- copper under a mask opening, in the finish color (ENIG...)
- *   5. silk       -- clipped out of mask openings, as a fab house prints it
+ *   5. silk       -- clipped out of mask openings and to the outline, as a fab
+ *                    house prints it
  *   6. paste      -- optional
  *   7. drills     -- with no frame background the renderer ERASES drill fills
  *                    (destination-out), so holes are transparent through every
@@ -184,19 +185,30 @@ export async function addBoardLayers(renderer, board, options = {}) {
 
   if (face.silk && palette.silk) {
     const silk = await layerText(face.silk, strip);
-    if (options.clipSilk !== false && maskSourceId != null) {
+    const style = { color: palette.silk.color, alpha: palette.silk.alpha };
+    if (options.clipSilk !== false && (maskSourceId != null || outlineId != null)) {
+      // Silk is printed only on mask and only on the board. As a composite of
+      // [silk, mask] that is "10"; with an outline it is drawn as the
+      // inversion of every other code, because an inverted composite is
+      // clipped to the outline. Without a mask the second source is a twin
+      // of the silk, so "11" is the silk itself.
       const silkId = await hidden(silk);
-      ids.silk = await renderer.renderCompositeLayer([silkId, maskSourceId], {
-        name: "Silkscreen",
-        visibleAreas: ["10"],
-        color: palette.silk.color,
-        alpha: palette.silk.alpha,
-      });
+      const second = maskSourceId ?? (await hidden(silk));
+      const shown = maskSourceId != null ? "10" : "11";
+      ids.silk = await renderer.renderCompositeLayer(
+        [silkId, second],
+        outlineId != null
+          ? {
+              name: "Silkscreen",
+              inverted: true,
+              visibleAreas: ["00", "01", "10", "11"].filter((code) => code !== shown),
+              outlineLayerId: outlineId,
+              ...style,
+            }
+          : { name: "Silkscreen", visibleAreas: [shown], ...style },
+      );
     } else {
-      ids.silk = await renderer.renderLayer(silk, {
-        color: palette.silk.color,
-        alpha: palette.silk.alpha,
-      });
+      ids.silk = await renderer.renderLayer(silk, style);
     }
   }
 

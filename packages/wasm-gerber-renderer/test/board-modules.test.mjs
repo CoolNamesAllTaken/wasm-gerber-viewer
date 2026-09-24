@@ -458,7 +458,11 @@ test("addBoardLayers stacks substrate, copper, mask, finish, silk and see-throug
   assert.deepEqual(mask.color, maskColor("blue"));
   assert.equal(mask.outlineLayerId, ids.outline);
   assert.deepEqual(renderer.calls[6][1], [ids.copper, 7], "finish = copper AND the mask loaded as a source");
-  assert.deepEqual(renderer.calls[8][2].visibleAreas, ["10"]);
+  // Silk on mask only, and only inside the outline: the inversion of every
+  // other [silk, mask] code, clipped to the outline.
+  assert.deepEqual(renderer.calls[8][2].visibleAreas, ["00", "01", "11"]);
+  assert.equal(renderer.calls[8][2].inverted, true);
+  assert.equal(renderer.calls[8][2].outlineLayerId, ids.outline);
   assert.equal(renderer.calls[9][1], "b-PTH.drl");
   assert.equal(ids.drills.length, 1);
 
