@@ -320,6 +320,33 @@ final output; hidden Gerbers remain available to composites. Outline precedence 
 composite JSON value, CLI `--outline-layer`, auto detection, then bounds.
 Composite sources cannot be drills or other composites.
 
+## Board Rendering and Layer Diffs (browser)
+
+Subpath modules, not imported by the main entrypoint:
+
+- `wasm-gerber-renderer/board`: `renderBoard(renderer, board, { side, width, height, palette })`
+  draws a realistic face (laminate, copper, inverted mask, finish, silk, drills).
+  With no `background` holes and the area outside the outline are transparent.
+  `addBoardLayers()` does it inside your own `withFrame()`; `renderFaceRaster()`
+  paints a texture for a 3D board.
+- `wasm-gerber-renderer/layers`: `groupBoardLayers(files)` sorts a fab export
+  (X2 attributes, KiCad names, Protel extensions) into `{ outline, top, bottom, inner, drills }`;
+  `layerRole(name, content)`, `withoutProfile(text)`.
+- `wasm-gerber-renderer/diff`: `renderLayerDiff(renderer, { base, head }, frameOptions)` draws
+  removed red / added green / unchanged dim in ONE frame (shared view);
+  `analyzeLayerDiff()` returns `{ changed, identical, regions: [{ kind, pixels, world }] }`;
+  `analyzeBoardDiff(renderer, [{ name, base, head }], { width, height })` gives every
+  layer one view (`report.view`); pass `frameView(report.view)` as `view` to
+  `renderLayerDiff()` so overlay and report line up. A side may be an array (union) or `null`.
+  Excellon sources are converted to Gerber automatically.
+- `wasm-gerber-renderer/drills`: `parseExcellon`, `diffHoles`, `projectHoles`, `holeMask` +
+  `applyHoleMask` (CSS), `cutHoles` (2D canvas), `holesToGerber`.
+- `wasm-gerber-renderer/palette`, `/view`, `/contour` (+ `contour-worker.js`), `/raster`.
+
+Diffs are GPU renders: use one renderer per visible canvas and a separate
+renderer on a detached canvas for analysis. `measureLayers()` and analysis
+reuse (and resize) the renderer's canvas.
+
 ## Input Rules
 
 Browser sources:

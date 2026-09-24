@@ -132,7 +132,7 @@
     "prepublishOnly": "npm run check",
     "check": "node --check index.js && node --check node.js && node --check shared.js && node --check board.js && node --check diff.js && node --check drills.js && node --check palette.js && node --check layers.js && node --check view.js && node --check contour.js && node --check raster.js && node --check contour-worker.js && node --check bin/wasm-gerber-renderer.js && node --check scripts/stage-wasm.mjs && node --check scripts/clean-wasm.mjs && node --check scripts/benchmark-composite-4k.mjs && tsc -p test/types/tsconfig.json && node --test test/*.test.mjs",
     "verify:publish": "npm run check && npm pack --dry-run",
-    "benchmark:board-diff-4k": "node ../../scripts/benchmark-board-diff-4k.mjs"
+    "benchmark:board-diff-4k": "cd ../.. && node scripts/benchmark-board-diff-4k.mjs"
   },
   "license": "MIT",
   "repository": {

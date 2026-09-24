@@ -30,6 +30,7 @@ default native WebGL2 context provider.
 - [Type Reference](#type-reference)
 - [Browser API](#browser-api)
 - [Overlaying the Canvas](#overlaying-the-canvas)
+- [Board Rendering and Layer Diffs](#board-rendering-and-layer-diffs)
 - [Node.js Usage](#nodejs-usage)
 - [Node.js API](#nodejs-api)
 - [Composite Layers](#composite-layers)
@@ -271,6 +272,142 @@ canvas's backing-resolution multiplier if the overlay is sized in CSS pixels.
 `wasmInitInput` is the URL of `wasm_gerber_processor_bg.wasm`. Pass it whenever
 the page's static files are fingerprinted or served from somewhere other than
 next to `shared.js`; the default resolution is relative to the module's own URL.
+
+## Board Rendering and Layer Diffs
+
+Framework-free browser modules for drawing a board the way it looks and for
+comparing two revisions of it. Each is its own subpath export with types; the
+main entrypoint does not import them, so hosts that only use `index.js` are
+unaffected.
+
+| Module | What it does |
+| --- | --- |
+| `wasm-gerber-renderer/board` | Realistic board faces: laminate, copper, inverted solder mask, surface finish, clipped silkscreen, see-through holes. Texture-ready face rasters for 3D boards. |
+| `wasm-gerber-renderer/diff` | Layer diffs on the GPU: removed (red), added (green) and unchanged (dim) coverage in one shared frame, plus change regions for navigation. |
+| `wasm-gerber-renderer/drills` | Excellon hole lists, hole diffs, CSS hole masks, 2D canvas cuts, SVG hole shapes, holes as Gerber. |
+| `wasm-gerber-renderer/palette` | Board colors: named mask/silk/finish colors, `boardPalette()`. |
+| `wasm-gerber-renderer/layers` | Which layer a file is (Gerber X2, KiCad names, Protel extensions), grouping a fab export into a board, removing board-profile strokes. |
+| `wasm-gerber-renderer/view` | `fitView`, `project`/`unproject` with mirror and backing scale, shared views, pixel/world rectangles. |
+| `wasm-gerber-renderer/contour` | Raster to polygons (outlines with holes); `contour-worker.js` runs it off the main thread. |
+| `wasm-gerber-renderer/raster` | Reading a completed frame back (`readRendererPixels`), `hasInk`, `copyScaled`, `flattenOnto`. |
+
+All of it runs on the published WASM build; nothing here needs a newer binary.
+
+### A realistic board
+
+```js
+import { createGerberRenderer } from "wasm-gerber-renderer";
+import { renderBoard } from "wasm-gerber-renderer/board";
+import { groupBoardLayers } from "wasm-gerber-renderer/layers";
+
+// files: [{ name, source, content }] -- content (the text) lets Gerber X2
+// attributes identify layers whose file names do not.
+const board = groupBoardLayers(files);
+const renderer = await createGerberRenderer(canvas);
+await renderBoard(renderer, board, {
+  side: "top", // "bottom" is mirrored as seen from below
+  width: 1600,
+  height: 1000,
+  padding: 24,
+  palette: { mask: "red", silk: "white", finish: "ENIG" },
+});
+```
+
+The face is composited in stack order: board-shaped laminate (the outline's
+interior), copper, the mask inverted inside the outline, the finish color on
+copper in mask openings, silkscreen with mask openings removed, then drills.
+With no frame `background` (the default here) the renderer erases drill fills,
+so **holes are transparent through every layer**, laminate included, and so is
+everything outside the outline: put the canvas over any background and it shows
+through. With an opaque `background`, holes show that color instead.
+
+`addBoardLayers(renderer, board, options)` does the same inside a frame you
+opened yourself. KiCad's "plot on all layers" board outline is removed from
+face layers by its Gerber X2 `Profile` attribute (`stripProfile: false` keeps it).
+
+For a 3D board, `renderFaceRaster(renderer, board, { bounds, side })` paints a
+face whose pixels map linearly onto `bounds` (pixel (0, 0) is `(minX, maxY)`),
+sized by `faceRasterSize()` and flattened onto the laminate color so a
+non-blending material never samples a transparent texel. The bottom face is not
+mirrored there: painted in board coordinates on a solid you turn over, it reads
+correctly from below.
+
+When holes come from your own data rather than a drill file (a DOM overlay over
+a canvas with a CSS background, say), cut them with `drills.js`:
+
+```js
+import { applyHoleMask, holeMask, parseExcellon, projectHoles } from "wasm-gerber-renderer/drills";
+import { fitView, pixelsPerUnit, project } from "wasm-gerber-renderer/view";
+
+const view = fitView(boardBounds, canvas.width, canvas.height, 24);
+const holes = parseExcellon(drillText);
+const projected = projectHoles(
+  holes,
+  (x, y) => project(view, x, y, { scale: devicePixelRatio }),
+  pixelsPerUnit(view) / devicePixelRatio,
+);
+applyHoleMask(canvas, holeMask(projected, cssWidth, cssHeight));
+```
+
+`cutHoles(context2d, projected)` does the same on a 2D canvas.
+
+### Layer diffs
+
+```js
+import { analyzeBoardDiff, renderLayerDiff } from "wasm-gerber-renderer/diff";
+import { frameView } from "wasm-gerber-renderer/view";
+
+const layers = [
+  { name: "F.Cu", base: baseTopCopper, head: headTopCopper },
+  { name: "B.Cu", base: baseBottomCopper, head: headBottomCopper },
+  { name: "Drills", base: [basePth, baseNpth], head: [headPth, headNpth] },
+];
+
+// One view for every layer of both revisions, then a report per layer.
+const report = await analyzeBoardDiff(analysisRenderer, layers, { width: 3840, height: 2160 });
+for (const layer of report.layers) {
+  console.log(layer.name, layer.changed, layer.regions.map((region) => region.world));
+}
+
+// The overlay for one layer, in exactly the same frame.
+await renderLayerDiff(renderer, layers[0], {
+  width: 3840,
+  height: 2160,
+  view: frameView(report.view),
+  underlay: [{ source: outline, alpha: 0.4 }],
+});
+```
+
+- **One frame for both revisions.** Base and head are drawn in a single
+  renderer frame, so they cannot misalign: fitted to the union of both
+  revisions' extents, or to an explicit `view`. `measureLayers()` returns the
+  union bounds of any set of sources, for a view shared by several layers.
+- **GPU classification.** Every source is loaded hidden and three composite
+  layers select base-only (removed), head-only (added) and both (unchanged)
+  coverage. A side may be several files (drawn as their union, 12 sources in
+  total at most) or `null` for a layer that exists in one revision only.
+- **Change regions.** `analyzeLayerDiff()` draws the same classification in
+  pure colors, reads it back once and returns `changed`, pixel counts and
+  `regions` (`kind`, `pixels`, `world` bounds), largest first. Changes closer
+  than `mergeDistance` pixels (16) join one region. `summarizeDiffPixels()` is
+  the pure half, for classification pixels you render yourself.
+- **No render for no change.** Revisions whose text agrees apart from `G04`
+  comments and X2 attribute lines (KiCad re-exports differ in
+  `%TF.CreationDate` alone) are reported `identical` without rendering.
+- **Drills diff like layers.** Excellon sources are converted to Gerber
+  (`holesToGerber(parseExcellon(text))`); `diffHoles()` compares hole lists
+  directly.
+
+Colors come from `DIFF_STYLE` and can be changed per class with
+`style: { removed: { color, alpha }, ... }`; `showUnchanged: false` hides the
+unchanged coverage.
+
+The diff overlay costs about 1.6 times drawing the two revisions as ordinary
+layers, and analysis adds one full-frame readback and a linear scan.
+`npm run benchmark:board-diff-4k` measures a synthetic 4-layer 100 x 100 mm
+board at 3840 x 2160 and prints the WebGL renderer it ran on; software
+renderers such as SwiftShader are flagged, because their timings say nothing
+about a GPU. `examples/board-diff/` in the repository is a two-revision demo.
 
 ## Node.js Usage
 
