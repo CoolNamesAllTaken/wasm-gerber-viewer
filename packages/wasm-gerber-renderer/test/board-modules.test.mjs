@@ -434,7 +434,11 @@ test("addBoardLayers stacks substrate, copper, mask, finish, silk and see-throug
   const ids = await addBoardLayers(renderer, {
     outline: { source: "M02*\n", name: "edge.gbr" },
     top: { copper: "M02*\n", mask: "M02*\n", silk: "M02*\n" },
-    drills: [{ source: "M48\n%\nM30\n", name: "b-PTH.drl" }],
+    drills: [
+      { source: "M48\nMETRIC\nT1C0.8\n%\nT1\nX1.0Y1.0\nM30\n", name: "b-PTH.drl" },
+      // Header-only, as KiCad writes for a board without NPTH holes: skipped.
+      { source: "M48\nMETRIC\n%\nM30\n", name: "b-NPTH.drl" },
+    ],
   }, { palette: { mask: "blue" } });
   const kinds = renderer.calls.map(([kind, name, options]) =>
     kind === "composite" ? `composite:${options.name}` : kind === "inverted" ? `inverted:${name.name}` : `layer:${options.visible === false ? "hidden" : "shown"}`,

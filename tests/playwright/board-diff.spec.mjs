@@ -209,7 +209,8 @@ test("realistic board: holes and the area outside the outline are transparent", 
       copper,
       mask,
       silk,
-      drills: [holes],
+      // A header-only NPTH file (KiCad writes one for boards without NPTH holes).
+      drills: [holes, { source: "M48\nMETRIC\n%\nM30\n", name: "b-NPTH.drl" }],
     }, {
       width: 600,
       height: 400,

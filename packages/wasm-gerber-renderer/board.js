@@ -28,6 +28,7 @@ import { calculateFitView, sourceToText } from "./shared.js";
 import { boardPalette, toHexColor } from "./palette.js";
 import { flattenOnto } from "./raster.js";
 import { withoutProfile } from "./layers.js";
+import { parseExcellon } from "./drills.js";
 
 /** The layer roles of one face, in the order they are drawn. */
 export const FACE_ROLES = Object.freeze(["copper", "mask", "silk", "paste"]);
@@ -222,8 +223,12 @@ export async function addBoardLayers(renderer, board, options = {}) {
   if (options.holes !== false) {
     for (const drill of face.drills) {
       const { source, name } = unwrap(drill);
+      const text = await sourceToText(source);
+      // KiCad writes a header-only NPTH file for a board without such holes;
+      // the renderer rejects a drill file with no holes, so skip it.
+      if (parseExcellon(text).length === 0) continue;
       const id = await renderer.renderLayer(
-        { source, name: name ?? "drill.drl", kind: "drill" },
+        { source: text, name: name ?? "drill.drl", kind: "drill" },
         { color: palette.plating },
       );
       if (id != null) ids.drills.push(id);
