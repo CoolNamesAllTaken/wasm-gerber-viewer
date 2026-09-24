@@ -99,3 +99,9 @@ async function usage(): Promise<void> {
 }
 
 void usage;
+
+import { boardOutline, gerberExtents, outlineContours, type BoardOutline } from "../../outline.js";
+const outlineShape: BoardOutline | null = boardOutline(baseText, { width: 100, height: 80 });
+void outlineShape?.holes.length;
+void outlineContours(baseText)[0]?.bounds.minX;
+void gerberExtents(baseText);

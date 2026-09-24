@@ -287,6 +287,7 @@ unaffected.
 | `wasm-gerber-renderer/drills` | Excellon hole lists, hole diffs, CSS hole masks, 2D canvas cuts, SVG hole shapes, holes as Gerber. |
 | `wasm-gerber-renderer/palette` | Board colors: named mask/silk/finish colors, `boardPalette()`. |
 | `wasm-gerber-renderer/layers` | Which layer a file is (Gerber X2, KiCad names, Protel extensions), grouping a fab export into a board, removing board-profile strokes. |
+| `wasm-gerber-renderer/outline` | The board outline as polygons in mm from an Edge.Cuts/profile Gerber: strokes and arcs stitched into loops, `boardOutline()` gives `{ outer, holes, bounds }` wound for extrusion. |
 | `wasm-gerber-renderer/view` | `fitView`, `project`/`unproject` with mirror and backing scale, shared views, pixel/world rectangles. |
 | `wasm-gerber-renderer/contour` | Raster to polygons (outlines with holes); `contour-worker.js` runs it off the main thread. |
 | `wasm-gerber-renderer/raster` | Reading a completed frame back (`readRendererPixels`), `hasInk`, `copyScaled`, `flattenOnto`. |

@@ -341,6 +341,8 @@ Subpath modules, not imported by the main entrypoint:
   Excellon sources are converted to Gerber automatically.
 - `wasm-gerber-renderer/drills`: `parseExcellon`, `diffHoles`, `projectHoles`, `holeMask` +
   `applyHoleMask` (CSS), `cutHoles` (2D canvas), `holesToGerber`.
+- `wasm-gerber-renderer/outline`: `boardOutline(edgeCutsText, { width?, height? })` ->
+  `{ outer, holes, bounds }` polygons in mm (outer CCW, holes CW) for clips and 3D extrusion.
 - `wasm-gerber-renderer/palette`, `/view`, `/contour` (+ `contour-worker.js`), `/raster`.
 
 Diffs are GPU renders: use one renderer per visible canvas and a separate
