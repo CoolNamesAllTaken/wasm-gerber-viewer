@@ -260,7 +260,7 @@ test("CSS hole mask and 2D canvas cut open the holes they are given", async ({ p
     const context = probe.getContext("2d", { willReadFrequently: true });
     context.drawImage(image, 0, 0);
     const alpha = (x, y) => context.getImageData(x, y, 1, 1).data[3];
-    const masked = { hole: alpha(20, 20), slotMiddle: alpha(70, 20), slotEnd: alpha(82, 20), solid: alpha(40, 5) };
+    const masked = { hole: alpha(20, 20), slotMiddle: alpha(70, 20), slotEnd: alpha(81, 20), solid: alpha(40, 5) };
 
     const element = document.createElement("div");
     drills.applyHoleMask(element, mask);
