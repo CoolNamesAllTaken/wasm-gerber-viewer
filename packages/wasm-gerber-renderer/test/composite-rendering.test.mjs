@@ -3668,15 +3668,16 @@ test(
         );
         const centerX = Math.round(width / 2);
         const centerY = Math.round(height / 2);
-        const select = (compositeId) => {
+        const select = (compositeId, phase) => {
           processor.render_composite_selection(compositeId, 0.15, 0.15, 0, 0);
           assert.equal(
             processor.pick_composite_code(compositeId, centerX, centerY),
             3,
+            `cycle ${iteration}, ${phase}, composite ${compositeId}, pixel (${centerX}, ${centerY}) in ${width}x${height}`,
           );
         };
 
-        select(firstComposite);
+        select(firstComposite, "initial composite");
         const beforeToggle = processor.get_composite_diagnostics(firstComposite);
         processor.set_composite_visible_byte(firstComposite, 0, 0xf6);
         processor.render_composite_selection(firstComposite, 0.15, 0.15, 0, 0);
@@ -3709,10 +3710,13 @@ test(
           );
         }
 
-        select(firstComposite);
+        select(
+          firstComposite,
+          injectAllocationFailure ? "retry after allocation failure" : "composite retry",
+        );
         processor.end_composite_selection();
         processor.remove_layer(firstComposite);
-        select(sharedComposite);
+        select(sharedComposite, "shared composite after first removal");
         processor.end_composite_selection();
         processor.remove_layer(sharedComposite);
       };
