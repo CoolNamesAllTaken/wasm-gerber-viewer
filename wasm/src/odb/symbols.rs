@@ -1903,8 +1903,8 @@ fn moire(
     angle_deg: f32,
 ) {
     if ring_width > 0.0 {
-        circle(aperture, ring_width, 0.0);
         let mut inner = ring_width / 2.0;
+        let ring_start = aperture.primitives.len();
         for _ in 0..rings {
             inner += ring_gap;
             let outer = inner + ring_width;
@@ -1919,6 +1919,11 @@ fn moire(
             });
             inner = outer;
         }
+        // Highlight batches are drawn in primitive order. Draw the outer
+        // rings first so each inner ring and the centre dot restore the
+        // geometry cleared by the next ring's hole.
+        aperture.primitives[ring_start..].reverse();
+        circle(aperture, ring_width, 0.0);
     }
     if line_width > 0.0 && line_length > 0.0 {
         for extra in [0.0f32, 90.0] {
