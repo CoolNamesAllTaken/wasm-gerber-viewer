@@ -2162,7 +2162,9 @@ impl Renderer {
                 .map_err(|error| {
                     JsValue::from_str(&format!("Failed to build board outline region: {error}"))
                 })?;
-            path_regions.append(group_regions);
+            path_regions.append(group_regions).map_err(|error| {
+                JsValue::from_str(&format!("Failed to build board outline region: {error}"))
+            })?;
         }
         Ok(path_regions)
     }
