@@ -153,7 +153,10 @@ wasm-gerber-viewer/
 
 Modern browsers with WebGL2 support:
 
-- Chrome 96+, Firefox 114+, Safari 15.4+, Edge 96+
+- Chrome 96+
+- Firefox 114+
+- Safari 15.4+
+- Edge 96+
 
 ## Source
 
