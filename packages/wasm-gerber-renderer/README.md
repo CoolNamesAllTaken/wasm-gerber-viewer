@@ -443,13 +443,14 @@ other valid layers/composites continue.
 - `preserveArcRegions`: keeps exact region arcs. Defaults to `true`; set `false` to approximate region arcs.
 - `arcTessellationQuality`: arc approximation quality, `0` low, `1` normal, `2` high. Defaults to `1`.
 - `minimumFeaturePixels`: minimum rendered line/arc width in screen pixels. Defaults to `1`.
+- `antiAliasing`: anti-aliased layer masks (4x MSAA plus analytic edge coverage). Costs one canvas-sized multisample target and a resolve per layer. Defaults to `false`.
 - `renderDrills`: renders NC drill files (`.drl`, `.nc`, `.xnc`, `.xln`) as drill overlays. Defaults to `true`.
 - `globalAlpha`: opacity for Gerber layers without an explicit layer `alpha` in `blend` mode. Defaults to `0.7`; drill layers render at full opacity unless their own `alpha` is set.
 - `compositeMode`: layer compositing mode, `"blend"` or `"stack"`. Defaults to `"blend"`. `blend` uses additive alpha blending; `stack` uses ordered source-over compositing for Gerber layers, so later Gerber layers cover earlier Gerber layers and default to opacity `1`. Drill overlays render after Gerber layers.
 - `invertedOutline`: Node-only outline source for inverted layers. Use `"auto"` to detect a board outline layer, `"bounds"` to fill the current Gerber bounds, or a layer index/name selector. Defaults to `"auto"`.
 - `maxBandBytes`: Node-only streamed PNG row-buffer budget. Defaults to `512 MiB`.
 - `maxFullFrameBytes`: Node-only memory budget for choosing full-frame PNG export. Defaults to `512 MiB`.
-- `maxRenderTargetBytes`: Node-only per-render-target memory cap. By default the renderer probes the available GPU/driver budget and falls back to `2 GiB`.
+- `maxRenderTargetBytes`: Node-only per-render-target memory cap. By default the renderer probes the available GPU/driver budget and falls back to `2 GiB`. With `antiAliasing` the shared 4x multisample target (R8 colour plus stencil, 8 bytes per pixel) is included in the estimate.
 - `framebufferMemorySafetyFactor`: Node-only multiplier for full-frame framebuffer memory estimates. Defaults to `2`.
 - `strategy`: Node-only PNG export strategy, `"auto"`, `"full-frame"`, or `"stream"`. Defaults to `"auto"`.
 - `layerErrorMode`: `"skip"` renders remaining valid layers; `"throw"` rejects on first failure. Defaults to `"skip"`.
@@ -543,6 +544,7 @@ CLI options:
 - `--alpha <0-1>`: Gerber layer opacity in `blend` mode. Defaults to `0.7`; `stack` mode uses full Gerber opacity, and drill overlays render at full opacity.
 - `--composite-mode <blend|stack>`: layer compositing mode. Defaults to `blend`.
 - `--minimum-feature-pixels <px>`: minimum rendered line/arc width. Defaults to `1`.
+- `--anti-aliasing`: anti-aliased layer masks (4x MSAA plus analytic edge coverage). Off by default.
 - `--max-render-target-bytes <size>`: per-render target memory cap. Accepts bytes or suffixes like `512m` and `2g`.
 - `--max-band-bytes <size>`: streamed PNG row-buffer cap. Accepts bytes or suffixes like `512m` and `2g`.
 - `--max-full-frame-bytes <size>`: full-frame PNG memory cap. Accepts bytes or suffixes like `512m` and `2g`.
