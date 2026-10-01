@@ -579,7 +579,7 @@ warning for each skipped file, and renders the remaining layers. If every input
 fails, the command exits with an error.
 
 When one input is provided and `--output` is omitted, the CLI writes next to the
-input. Generic Gerber extensions such as `.gbr`, `.ger`, `.art`, `.gdo`,
+input. Generic Gerber extensions such as `.gbr`, `.gbx`, `.ger`, `.art`, `.gdo`,
 `.phd`, and `.pho` are replaced with `.png`; layer-specific or unknown extensions keep the
 full filename and append `.png`.
 

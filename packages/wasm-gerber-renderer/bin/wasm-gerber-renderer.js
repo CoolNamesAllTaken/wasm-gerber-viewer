@@ -65,6 +65,7 @@ const ARCHIVE_EXTENSIONS = [".zip", ".tar.gz", ".tgz", ".tar"];
 const GENERIC_GERBER_EXTENSIONS = [
   ".art",
   ".gbr",
+  ".gbx",
   ".gdo",
   ".ger",
   ".phd",
