@@ -189,13 +189,21 @@ fn rejects_repeated_arc_region_before_interaction_tessellation() {
         .expect("test arc should be valid");
     let mut state = ParserState::default();
     state.sr_x = MAX_STEP_REPEAT_COPIES as u32;
+    let contours = vec![contour; 4];
 
-    let error = match super::geometry::build_path_regions(&[contour], &state, 2, true, false) {
+    let error = match super::geometry::build_path_regions(&contours, &state, 2, true, false) {
         Ok(_) => panic!("repeated arc region must be rejected before expansion"),
         Err(error) => error,
     };
 
-    assert!(error.contains("path region expands"));
+    let rejected_by_command_limit = error.contains("path region expands");
+    let rejected_by_geometry_limit = error
+        .contains("generated geometry exceeds the supported limit")
+        && error.contains("while processing path region");
+    assert!(
+        rejected_by_command_limit || rejected_by_geometry_limit,
+        "{error}"
+    );
     assert_eq!(state.generated_items(), 0);
 }
 
@@ -1363,6 +1371,64 @@ M02*",
     assert_eq!(layers[1].path_regions.region_count(), 1);
 }
 
+fn arc_region_gerber(regions: &[(&str, i32)]) -> String {
+    // One circular G36 region (two G03 half arcs) per entry, 4 mm apart,
+    // each preceded by the given extra command ("" for none).
+    let mut gerber = String::from("%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.5*%\nG75*\n");
+    for (prefix, index) in regions {
+        let offset = index * 40000;
+        gerber.push_str(prefix);
+        gerber.push_str(&format!(
+            "G36*\nX{:06}Y000000D02*\nG03*\nX{:06}Y000000I-010000J000000D01*\nX{:06}Y000000I010000J000000D01*\nG37*\nG01*\n",
+            offset + 10000,
+            offset - 10000,
+            offset + 10000,
+        ));
+    }
+    gerber.push_str("M02*");
+    gerber
+}
+
+#[test]
+fn consecutive_arc_regions_share_one_sublayer() {
+    // A stencil layer is thousands of rounded pads in a row; each used to
+    // open its own polarity sublayer.
+    let layers = parse_gerber(&arc_region_gerber(&[("", 0), ("", 1), ("", 2)]))
+        .expect("consecutive arc regions should parse");
+
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].path_regions.region_count(), 3);
+}
+
+#[test]
+fn arc_regions_still_split_on_polarity_changes_and_primitives() {
+    // Clear polarity between regions keeps its own sublayer.
+    let layers = parse_gerber(&arc_region_gerber(&[
+        ("", 0),
+        ("%LPC*%\n", 1),
+        ("%LPD*%\n", 2),
+    ]))
+    .expect("regions with polarity changes should parse");
+    assert_eq!(layers.len(), 3);
+    assert!(!layers[0].is_negative && layers[1].is_negative && !layers[2].is_negative);
+    assert!(layers
+        .iter()
+        .all(|layer| layer.path_regions.region_count() == 1));
+
+    // A flash between two regions keeps the drawing order: region, flash,
+    // region, each in its own sublayer (as before the merge).
+    let layers = parse_gerber(&arc_region_gerber(&[
+        ("", 0),
+        ("D10*\nX020000Y020000D03*\n", 1),
+    ]))
+    .expect("regions around a flash should parse");
+    let region_counts: Vec<usize> = layers
+        .iter()
+        .map(|layer| layer.path_regions.region_count())
+        .collect();
+    assert_eq!(region_counts, vec![1, 0, 1]);
+}
+
 #[test]
 fn path_region_translate_moves_analytic_sector_vertices() {
     let mut layers = parse_gerber(
@@ -2338,6 +2404,31 @@ M02*",
     assert_approx_eq(layer.arcs.sweep_angle[0], 2.0 * std::f32::consts::PI);
     assert_eq!(layer.circles.x.len(), 2);
     assert!(has_circle_at(&layer.circles, 1.0, 0.0, 0.5));
+}
+
+#[test]
+fn micro_arc_with_endpoints_within_tolerance_is_not_treated_as_full_circle() {
+    let layers = parse_gerber(
+        "\
+%FSLAX26Y26*%
+%MOMM*%
+%ADD12C,0.300*%
+D12*
+G75*
+G03*
+X75200059Y9600000D02*
+X75200000Y9600000I-29J-50000D01*
+M02*",
+    )
+    .expect("micro-arc should parse");
+    let layer = &layers[0];
+
+    assert_eq!(layer.arcs.x.len(), 1);
+    assert!(
+        layer.arcs.sweep_angle[0].abs() < 0.01,
+        "micro-arc sweep must be small (~0.001 rad), got {}",
+        layer.arcs.sweep_angle[0]
+    );
 }
 
 #[test]

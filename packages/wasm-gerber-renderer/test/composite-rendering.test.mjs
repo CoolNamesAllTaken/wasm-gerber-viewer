@@ -1895,7 +1895,7 @@ test(
       assert.equal(wasR8FailureForced(), true);
       assert.ok(
         rgbaAllocationsAfterR8Failure() >= 1,
-        "the internal outline must retry with a red-channel RGBA8 mask",
+        "the internal outline mask must retry with an RGBA8 fallback",
       );
       let diagnostics = processor.get_composite_diagnostics(compositeId);
       assert.equal(diagnostics.outlineFormat, "RGBA8");
@@ -1913,8 +1913,8 @@ test(
       processor.resize_to(160, 96);
       diagnostics = processor.get_composite_diagnostics(compositeId);
       assert.equal(wasR8FailureForced(), true);
-      assert.equal(diagnostics.outlineFormat, "RGBA8");
-      assert.equal(diagnostics.sharedOutlineBytes, 160 * 96 * 4);
+      assert.equal(diagnostics.outlineFormat, "R8");
+      assert.equal(diagnostics.sharedOutlineBytes, 160 * 96);
       processor.render_composite_selection(compositeId, 0.05, 0.05, 0, 0);
       assert.equal(processor.pick_composite_code(compositeId, 80, 48), 1);
     }, { r8FailureMode: "unsupported" });
@@ -3668,15 +3668,16 @@ test(
         );
         const centerX = Math.round(width / 2);
         const centerY = Math.round(height / 2);
-        const select = (compositeId) => {
+        const select = (compositeId, phase) => {
           processor.render_composite_selection(compositeId, 0.15, 0.15, 0, 0);
           assert.equal(
             processor.pick_composite_code(compositeId, centerX, centerY),
             3,
+            `cycle ${iteration}, ${phase}, composite ${compositeId}, pixel (${centerX}, ${centerY}) in ${width}x${height}`,
           );
         };
 
-        select(firstComposite);
+        select(firstComposite, "initial composite");
         const beforeToggle = processor.get_composite_diagnostics(firstComposite);
         processor.set_composite_visible_byte(firstComposite, 0, 0xf6);
         processor.render_composite_selection(firstComposite, 0.15, 0.15, 0, 0);
@@ -3709,10 +3710,13 @@ test(
           );
         }
 
-        select(firstComposite);
+        select(
+          firstComposite,
+          injectAllocationFailure ? "retry after allocation failure" : "composite retry",
+        );
         processor.end_composite_selection();
         processor.remove_layer(firstComposite);
-        select(sharedComposite);
+        select(sharedComposite, "shared composite after first removal");
         processor.end_composite_selection();
         processor.remove_layer(sharedComposite);
       };
