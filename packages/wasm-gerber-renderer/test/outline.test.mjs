@@ -8,6 +8,7 @@ import {
   gerberExtents,
   outlineContours,
   pickBoard,
+  ringsToGerber,
   signedArea,
 } from "../outline.js";
 
@@ -78,4 +79,17 @@ test("reads the KiCad demo Edge_Cuts export", () => {
   assert.equal(outline.holes.length, 0);
   assert.ok(Math.abs(outline.bounds.minX - 73.66) < 1e-6 && Math.abs(outline.bounds.maxY + 40.64) < 1e-6);
   assert.equal(boardOutline("%FSLAX46Y46*%\n%MOMM*%\nM02*\n"), null);
+});
+
+test("ringsToGerber round-trips through boardOutline", () => {
+  const outer = [[0, 0], [20, 0], [20, 10], [0, 10]];
+  const hole = [[5, 3], [8, 3], [8, 6], [5, 6]];
+  const text = ringsToGerber([outer, hole]);
+  assert.match(text, /^%FSLAX46Y46\*%/);
+  assert.match(text, /%ADD10C,0\.010000\*%/);
+  const outline = boardOutline(text);
+  assert.ok(outline);
+  assert.deepEqual(outline.bounds, { minX: 0, maxX: 20, minY: 0, maxY: 10 });
+  assert.equal(outline.holes.length, 1);
+  assert.equal(ringsToGerber([]).trim().split("\n").at(-1), "M02*");
 });

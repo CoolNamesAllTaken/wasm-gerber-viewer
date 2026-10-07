@@ -19,3 +19,5 @@ export declare function boardCutouts(
 ): OutlineContour[];
 export declare function boardOutline(text: string, options?: OutlineOptions): BoardOutline | null;
 export declare function gerberExtents(text: string): FrameBounds | null;
+/** Closed rings (mm) as a Gerber of hairline strokes, e.g. for `outlineLayerId`. */
+export declare function ringsToGerber(rings: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, options?: { width?: number }): string;

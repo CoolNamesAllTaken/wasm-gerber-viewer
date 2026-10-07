@@ -322,3 +322,22 @@ export function gerberExtents(text) {
   }
   return bounds;
 }
+
+/**
+ * Closed rings (`[[x, y], ...]` in millimeters, e.g. `boardOutline()`'s
+ * `outer` and `holes`, or a host's own stored outline) as an RS-274X Gerber of
+ * hairline strokes. What a frame needs to clip or invert against an outline it
+ * has as geometry rather than as an Edge.Cuts file: render it hidden and pass
+ * its id as `outlineLayerId` (see board.js). `width` is the stroke in mm.
+ */
+export function ringsToGerber(rings, { width = 0.01 } = {}) {
+  const at = (value) => Math.round(Number(value) * 1e6);
+  const lines = ["%FSLAX46Y46*%", "%MOMM*%", "%LPD*%", `%ADD10C,${Number(width).toFixed(6)}*%`, "D10*", "G01*"];
+  for (const ring of rings || []) {
+    if (!ring || ring.length < 2) continue;
+    lines.push(`X${at(ring[0][0])}Y${at(ring[0][1])}D02*`);
+    for (const [x, y] of ring.slice(1).concat([ring[0]])) lines.push(`X${at(x)}Y${at(y)}D01*`);
+  }
+  lines.push("M02*");
+  return lines.join("\n") + "\n";
+}
