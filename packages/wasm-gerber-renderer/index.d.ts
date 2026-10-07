@@ -41,7 +41,18 @@ export type RendererOptions = {
   wasmInitInput?: unknown;
   contextAttributes?: WebGLContextAttributes;
   releaseContext?: boolean;
+  /**
+   * Hears about input the renderer fixed up instead of rejecting, e.g. a
+   * drill file's zero-diameter tools (KiCad 10's `T1C0.000`) dropped with
+   * their hits. Default: `console.warn`.
+   */
+  onWarning?: RendererWarningHandler;
 };
+
+export type RendererWarningHandler = (
+  message: string,
+  detail: { name: string | null; dropped: Array<{ tool: number; diameter: number; hits: number }> },
+) => void;
 
 export type FrameView = {
   zoomX: number;
@@ -116,6 +127,8 @@ export type LayerOptions = {
   offsetX?: number;
   offsetY?: number;
   kind?: LayerKind;
+  /** Overrides the renderer's `onWarning` for this layer. */
+  onWarning?: RendererWarningHandler;
 };
 
 export type InvertedLayerOptions = {

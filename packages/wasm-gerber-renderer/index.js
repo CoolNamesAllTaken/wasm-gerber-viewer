@@ -5,6 +5,7 @@ import {
   FrameState,
   PNG_SIGNATURE,
   addDrillLayerToProcessor,
+  prepareDrillContent,
   addLayerToProcessor,
   applyProcessorOptions,
   boundaryToPlainObject,
@@ -529,7 +530,12 @@ export class GerberRenderer {
       }
       const result = addDrillLayerToProcessor(
         this.frame.processor,
-        content,
+        prepareDrillContent(
+          content,
+          options.name || getSourceName(source),
+          options.onWarning,
+          this.rendererOptions.onWarning,
+        ),
         offsetX,
         offsetY,
       );

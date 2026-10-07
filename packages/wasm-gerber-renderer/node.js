@@ -54,6 +54,7 @@ import {
   numberOrDefault,
   optionalAlpha,
   parseDrillLayerPayload,
+  prepareDrillContent,
   parseColor,
   payloadBounds,
   positiveIntegerOrDefault,
@@ -698,7 +699,7 @@ export class NodeGerberRenderer {
     if (isDrillLayerKind(initialKind) && options.renderDrills === false) {
       return null;
     }
-    const content = await sourceToText(source, {
+    let content = await sourceToText(source, {
       fileUrlToPath: fileURLToPath,
       readPathText: (path) => readSourcePathText(path),
       sourceDescription:
@@ -713,6 +714,14 @@ export class NodeGerberRenderer {
     const parseOptions = normalizeParseOptions(options);
     const sourceName = getSourceName(source);
     const name = options.name || sourceName || "Layer";
+    if (isDrillLayerKind(kind)) {
+      content = prepareDrillContent(
+        content,
+        options.name || sourceName,
+        options.onWarning,
+        this.rendererOptions.onWarning,
+      );
+    }
     const inverted = options.inverted === true;
     const retainSourceContent =
       inverted ||

@@ -70,6 +70,11 @@ export type CompositeLayerOptions = {
 export type PngRenderStrategy = "auto" | "full-frame" | "stream";
 export type InvertedOutlineSelection = "auto" | "bounds" | string | number;
 
+export type RendererWarningHandler = (
+  message: string,
+  detail: { name: string | null; dropped: Array<{ tool: number; diameter: number; hits: number }> },
+) => void;
+
 export type NodeRendererOptions = {
   wasmModule?: unknown;
   wasmModuleUrl?: string | URL;
@@ -80,6 +85,8 @@ export type NodeRendererOptions = {
   gl?: unknown;
   contextAttributes?: Record<string, unknown>;
   releaseContext?: boolean;
+  /** Hears about input fixed up instead of rejected (zero-diameter drill tools). Default: `console.warn`. */
+  onWarning?: RendererWarningHandler;
 };
 
 export type NodeFrameOptions = {
@@ -132,6 +139,8 @@ export type NodeLayerOptions = {
   offsetY?: number;
   inverted?: boolean;
   kind?: LayerKind;
+  /** Overrides the renderer's `onWarning` for this layer. */
+  onWarning?: RendererWarningHandler;
 };
 
 export type NodeLayerLoadOptions = NodeLayerOptions & {

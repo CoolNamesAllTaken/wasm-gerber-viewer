@@ -28,6 +28,8 @@ export type DiffOptions = {
   showUnchanged?: boolean;
   /** Drop `.AperFunction,Profile` strokes first (default false). */
   stripProfile?: boolean;
+  /** Hears about zero-diameter drill tools dropped from Excellon sources (default: console.warn). */
+  onWarning?: (message: string) => void;
   /** Context layers drawn first, e.g. the board outline. */
   underlay?: Array<{ source: GerberSource; name?: string; color?: RGBColor; alpha?: number }>;
 };
@@ -83,7 +85,8 @@ export declare function diffPatterns(
 export declare function geometryText(text: string): string;
 export declare function prepareDiffSources(
   side: DiffSide,
-  options?: { stripProfile?: boolean },
+  /** `onWarning` hears about dropped zero-diameter drill tools (default: console.warn). */
+  options?: { stripProfile?: boolean; onWarning?: (message: string) => void },
 ): Promise<PreparedDiffSource[]>;
 
 export declare function addLayerDiff(
