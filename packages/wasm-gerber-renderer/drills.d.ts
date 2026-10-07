@@ -27,7 +27,23 @@ export type HoleLike = {
 export type Point = [number, number];
 export type ProjectedHole<H = HoleLike> = [near: Point, far: Point | null, radius: number, hole: H];
 
-export declare function parseExcellon(text: string, options?: { plated?: boolean }): Hole[];
+export declare function parseExcellon(
+  text: string,
+  options?: { plated?: boolean; onWarning?: (message: string) => void },
+): Hole[];
+export type DroppedDrillTool = {
+  tool: number;
+  /** As written in the file (file units): zero or negative. */
+  diameter: number;
+  hits: number;
+};
+/** The Excellon text without zero/negative-diameter tools and their hits (which the wasm rejects). */
+export declare function dropEmptyTools(text: string): {
+  text: string;
+  dropped: DroppedDrillTool[];
+  warning: string | null;
+};
+export declare function withoutEmptyTools(text: string): string;
 export declare function distinctHoles<H extends HoleLike>(holes: H[]): H[];
 export declare function diffHoles<H extends HoleLike>(
   baseHoles: H[],

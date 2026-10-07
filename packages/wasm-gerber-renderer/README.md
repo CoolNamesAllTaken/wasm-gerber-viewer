@@ -356,6 +356,13 @@ applyHoleMask(canvas, holeMask(projected, cssWidth, cssHeight));
 
 `cutHoles(context2d, projected)` does the same on a 2D canvas.
 
+Zero-diameter drill tools (KiCad 10 writes `T1C0.000` for undrilled vias) are
+dropped with their hits wherever drill text reaches the WASM, which would
+otherwise reject the whole file: `renderLayer()`, `board.js` and `diff.js`
+all do it and report it through the renderer's `onWarning(message, detail)`
+option (default `console.warn`). `dropEmptyTools(text)` returns
+`{ text, dropped, warning }` for drill text you pass along yourself.
+
 ### Layer diffs
 
 ```js

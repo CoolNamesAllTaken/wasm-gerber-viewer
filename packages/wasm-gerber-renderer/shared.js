@@ -1,3 +1,5 @@
+import { dropEmptyTools, withoutEmptyTools } from "./drills.js";
+
 const DEV_WASM_MODULE_PATH = "../../wasm/pkg/wasm_gerber_processor.js";
 
 export const DEFAULT_WASM_MODULE_URLS = [
@@ -458,7 +460,25 @@ export function addLayerToProcessor(processor, content, offsetX, offsetY) {
   return processor.add_layer(content);
 }
 
+/**
+ * Excellon text the wasm will accept: zero/negative-diameter tools and their
+ * hits dropped (see `dropEmptyTools()` in drills.js). The warning goes to the
+ * first handler given -- a layer's `onWarning`, then the renderer's -- or to
+ * `console.warn`.
+ */
+export function prepareDrillContent(content, name, ...handlers) {
+  const { text, dropped, warning } = dropEmptyTools(content);
+  if (warning) {
+    const message = name ? `${name}: ${warning}` : warning;
+    const handler = handlers.find((candidate) => typeof candidate === "function");
+    if (handler) handler(message, { name: name || null, dropped });
+    else console.warn(`wasm-gerber-renderer: ${message}`);
+  }
+  return text;
+}
+
 export function addDrillLayerToProcessor(processor, content, offsetX, offsetY) {
+  content = withoutEmptyTools(content);
   if (offsetX !== 0 || offsetY !== 0) {
     if (typeof processor.add_drill_layer_with_offset !== "function") {
       throw new Error("Drill layer offsets require an updated WASM renderer.");
@@ -735,7 +755,7 @@ export function parseDrillLayerPayload(
   if (typeof wasmModule.parse_drill_layer !== "function") {
     throw new Error("Drill parsing requires an updated WASM renderer.");
   }
-  const payload = wasmModule.parse_drill_layer(content, offsetX, offsetY);
+  const payload = wasmModule.parse_drill_layer(withoutEmptyTools(content), offsetX, offsetY);
   const outlineLayer = payload?.outlineLayer;
   const fillLayer = payload?.fillLayer;
   if (!outlineLayer || !fillLayer) {

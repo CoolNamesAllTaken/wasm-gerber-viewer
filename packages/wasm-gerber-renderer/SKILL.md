@@ -361,7 +361,9 @@ Subpath modules, not imported by the main entrypoint:
   `renderLayerDiff()` so overlay and report line up. A side may be an array (union) or `null`.
   Excellon sources are converted to Gerber automatically.
 - `wasm-gerber-renderer/drills`: `parseExcellon`, `diffHoles`, `projectHoles`, `holeMask` +
-  `applyHoleMask` (CSS), `cutHoles` (2D canvas), `holesToGerber`.
+  `applyHoleMask` (CSS), `cutHoles` (2D canvas), `holesToGerber`, `dropEmptyTools` /
+  `withoutEmptyTools` (zero-diameter tools such as KiCad 10's `T1C0.000`, which the WASM
+  rejects; the renderer, board.js and diff.js already drop them, warning via `onWarning`).
 - `wasm-gerber-renderer/outline`: `boardOutline(edgeCutsText, { width?, height? })` ->
   `{ outer, holes, bounds }` polygons in mm (outer CCW, holes CW) for clips and 3D extrusion.
 - `wasm-gerber-renderer/palette`, `/view`, `/contour` (+ `contour-worker.js`), `/raster`.

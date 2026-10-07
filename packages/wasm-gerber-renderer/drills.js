@@ -23,7 +23,7 @@
 //   ; #@! TA.AperFunction,Plated,PTH,ViaDrill
 //   ; #@! TA.AperFunction,NonPlated,NPTH,ComponentDrill
 const APER_FUNCTION = /TA\.AperFunction,([^,\s]+)/i;
-const TOOL_DEF = /^T(\d+)(?:[A-BD-Z][-\d.]*)*C([\d.]+)/i;
+const TOOL_DEF = /^T(\d+)(?:[A-BD-Z][-\d.]*)*C([-+]?[\d.]+)/i;
 const TOOL_SELECT = /^T(\d+)\s*$/i;
 // A hole, or a slot in the G85 canned form: X…Y… optionally followed by G85X…Y….
 // Either axis may be omitted and holds its last value (modal coordinates).
@@ -32,6 +32,78 @@ const HOLE = /^(?:X([-+]?[\d.]+))?(?:Y([-+]?[\d.]+))?(?:G85(?:X([-+]?[\d.]+))?(?
 const ROUT = /^G0([0-3])(?:X([-+]?[\d.]+))?(?:Y([-+]?[\d.]+))?/i;
 const UNITS = /^(METRIC|INCH)(?:,(LZ|TZ))?(?:,(0+)\.(0+))?/i;
 const KICAD_FORMAT = /FORMAT=\{(\d+):(\d+)\/\s*\w+\s*\/\s*(metric|inch)\s*\/\s*([^}]*)\}/i;
+
+// What a hit or a rout move looks like in the body, for dropping a tool's hits.
+const MOTION = /^(?:[XY][-+\d.]|G0[0-3]|G85|M1[5-7]\b)/i;
+
+/**
+ * An Excellon file without its zero- or negative-diameter tools and their
+ * hits, plus what was dropped. KiCad 10 writes `T1C0.000` for vias with no
+ * drill (its royalblue54L_feather demo has 180 of them), and the renderer's
+ * wasm rejects the whole file ("Drill tool diameter must be positive"), so
+ * the board would lose every real hole with it. Everything else in the file
+ * is kept byte for byte; a file with no such tool comes back unchanged.
+ *
+ * Returns `{ text, dropped: [{ tool, diameter, hits }], warning }` where
+ * `diameter` is in file units and `warning` is a one-line message (or
+ * `null` when nothing was dropped). The renderer, `board.js` and `diff.js`
+ * all go through this; call it yourself before handing Excellon text to the
+ * wasm by some other route.
+ */
+export function dropEmptyTools(text) {
+  const source = String(text ?? "");
+  const lines = source.split(/\r?\n/);
+  const empty = new Map();
+  for (const raw of lines) {
+    const found = TOOL_DEF.exec(raw.trim());
+    if (found && !(Number(found[2]) > 0)) {
+      const tool = Number(found[1]);
+      if (!empty.has(tool)) empty.set(tool, { tool, diameter: Number(found[2]), hits: 0 });
+    }
+  }
+  if (!empty.size) return { text, dropped: [], warning: null };
+
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const out = [];
+  let dropping = null;
+  let inBody = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line === "%" || /^M95\b/i.test(line)) inBody = true;
+    const definition = TOOL_DEF.exec(line);
+    const select = definition && inBody ? definition : TOOL_SELECT.exec(line);
+    if (definition && !inBody) {
+      if (!empty.has(Number(definition[1]))) out.push(raw);
+      continue;
+    }
+    if (select) {
+      dropping = empty.get(Number(select[1])) ?? null;
+      if (!dropping) out.push(raw);
+      continue;
+    }
+    if (dropping && MOTION.test(line)) {
+      if (/^[XY]/i.test(line)) dropping.hits += 1;
+      continue;
+    }
+    if (/^(M30|M00)\b/i.test(line)) dropping = null;
+    out.push(raw);
+  }
+  const dropped = [...empty.values()];
+  const hits = dropped.reduce((sum, entry) => sum + entry.hits, 0);
+  const tools = dropped.map((entry) => `T${entry.tool}C${entry.diameter}`).join(", ");
+  return {
+    text: out.join(newline),
+    dropped,
+    warning:
+      `Dropped ${dropped.length === 1 ? "a drill tool" : `${dropped.length} drill tools`} ` +
+      `with no diameter (${tools}) and ${hits} ${hits === 1 ? "hit" : "hits"}`,
+  };
+}
+
+/** `dropEmptyTools(text).text`: the Excellon text without zero-diameter tools. */
+export function withoutEmptyTools(text) {
+  return dropEmptyTools(text).text;
+}
 
 /**
  * Every hole in an Excellon drill file, round holes and slots alike.
@@ -44,6 +116,9 @@ const KICAD_FORMAT = /FORMAT=\{(\d+):(\d+)\/\s*\w+\s*\/\s*(metric|inch)\s*\/\s*(
  *
  * A tool with no plating attribute counts as plated unless the file name
  * passed as `options.plated` says otherwise (`false` for an NPTH file).
+ *
+ * Hits of a tool with no diameter (KiCad 10's `T1C0.000`) are left out;
+ * `options.onWarning(message)` hears about them once per file.
  */
 export function parseExcellon(text, options = {}) {
   const lines = String(text ?? "").split(/\r?\n/);
@@ -82,9 +157,13 @@ export function parseExcellon(text, options = {}) {
     return (negative ? -value : value) * scale();
   };
 
+  let skipped = 0;
   const add = (x, y, x2 = null, y2 = null) => {
     const diameter = current == null ? 0 : diameters.get(current) ?? 0;
-    if (!(diameter > 0)) return;
+    if (!(diameter > 0)) {
+      skipped += 1;
+      return;
+    }
     holes.push({
       x,
       y,
@@ -198,6 +277,9 @@ export function parseExcellon(text, options = {}) {
       at = slotted ? [x2, y2] : [x, y];
       add(x, y, x2, y2);
     }
+  }
+  if (skipped && typeof options.onWarning === "function") {
+    options.onWarning(`Left out ${skipped} drill ${skipped === 1 ? "hit" : "hits"} of tools with no diameter`);
   }
   return holes;
 }

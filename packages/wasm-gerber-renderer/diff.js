@@ -23,6 +23,7 @@
 import {
   calculateFitView,
   isDrillSource,
+  getSourceName,
   looksLikeDrillContent,
   sourceToText,
 } from "./shared.js";
@@ -89,14 +90,23 @@ function unwrap(entry) {
  * Sources for one revision as ready-to-render `{ source: text, name }`, with
  * Excellon converted to Gerber and (optionally) profile strokes stripped.
  */
-export async function prepareDiffSources(side, { stripProfile = false } = {}) {
+export async function prepareDiffSources(side, { stripProfile = false, onWarning } = {}) {
   const prepared = [];
   for (const entry of toList(side)) {
     const { source, name } = unwrap(entry);
     let text = await sourceToText(source);
     const drill = isDrillSource(source, name ?? "", text) || looksLikeDrillContent(text);
     if (drill) {
-      text = holesToGerber(parseExcellon(text, { plated: /npth/i.test(name ?? "") ? false : undefined }));
+      // Zero-diameter tools (KiCad 10's `T1C0.000`) are dropped with a warning.
+      const label = name ?? getSourceName(source);
+      const warn = (message) => {
+        const text = label ? `${label}: ${message}` : message;
+        if (typeof onWarning === "function") onWarning(text);
+        else console.warn(`wasm-gerber-renderer: ${text}`);
+      };
+      text = holesToGerber(
+        parseExcellon(text, { plated: /npth/i.test(name ?? "") ? false : undefined, onWarning: warn }),
+      );
     } else if (stripProfile) {
       text = withoutProfile(text);
     }
@@ -216,6 +226,7 @@ export async function addLayerDiff(renderer, pair, options = {}) {
 const DIFF_OPTION_KEYS = new Set([
   "style",
   "colors",
+  "onWarning",
   "showUnchanged",
   "stripProfile",
   "underlay",
